@@ -28,7 +28,7 @@ class SystemAudioCapturer(
         const val SAMPLE_RATE = 44100
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_STEREO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val FRAME_MS = 10 // smaller frames for lower latency
+        private const val FRAME_MS = 20 // 20ms frames — more stable than 10ms
     }
 
     private var audioRecord: AudioRecord? = null
@@ -67,7 +67,7 @@ class SystemAudioCapturer(
 
             val frameBytes = SAMPLE_RATE * 2 * 2 * FRAME_MS / 1000
             val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            val bufferSize = maxOf(minBuf * 2, frameBytes * 4)
+            val bufferSize = maxOf(minBuf * 4, frameBytes * 8)
 
             audioRecord = AudioRecord.Builder()
                 .setAudioFormat(
@@ -89,7 +89,7 @@ class SystemAudioCapturer(
             audioRecord?.startRecording()
             isCapturing = true
             seq = 0
-            Log.i(TAG, "Capture started ${FRAME_MS}ms frames")
+            Log.i(TAG, "Capture ${FRAME_MS}ms frames")
 
             scope.launch(Dispatchers.IO) {
                 val buffer = ByteArray(frameBytes)

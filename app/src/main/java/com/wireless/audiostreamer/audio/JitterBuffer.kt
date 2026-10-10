@@ -4,17 +4,18 @@ import java.util.TreeMap
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Sequence-ordered jitter buffer.
- * targetMs: WiFi ~70ms, Bluetooth ~180ms
+ * Stable jitter buffer — prioritizes clean continuous audio over lowest latency.
+ * targetMs ~140 keeps music understandable without heavy cutting.
  */
 class JitterBuffer(
-    private val targetMs: Int = 70,
+    private val targetMs: Int = 140,
     private val sampleRate: Int = 44100,
     private val channels: Int = 2,
     private val bytesPerSample: Int = 2
 ) {
     private val bytesPerMs = (sampleRate * channels * bytesPerSample) / 1000
-    private val targetBytes = (targetMs * bytesPerMs).coerceAtLeast(bytesPerMs * 20)
+    private val targetBytes = (targetMs * bytesPerMs).coerceAtLeast(bytesPerMs * 40)
+    private val maxBytes = targetBytes * 3
 
     private val lock = Any()
     private val map = TreeMap<Int, ByteArray>()
@@ -25,7 +26,8 @@ class JitterBuffer(
     fun add(sequence: Int, data: ByteArray) {
         synchronized(lock) {
             if (map.containsKey(sequence)) return
-            if (bufferedBytes > targetBytes * 4) {
+            // Drop oldest if too full (avoid multi-second lag)
+            while (bufferedBytes > maxBytes && map.isNotEmpty()) {
                 val first = map.firstKey()
                 val removed = map.remove(first)
                 if (removed != null) bufferedBytes -= removed.size
@@ -44,28 +46,34 @@ class JitterBuffer(
             if (!primed.get()) return null
             val seq = nextSeq ?: return null
             val data = map.remove(seq)
-            return if (data != null) {
+            if (data != null) {
                 bufferedBytes -= data.size
                 nextSeq = seq + 1
-                data
-            } else {
-                val higher = map.higherKey(seq)
-                when {
-                    higher != null && higher - seq <= 2 -> {
-                        nextSeq = seq + 1
-                        ByteArray(bytesPerMs * 10) // short silence
-                    }
-                    higher != null && higher - seq > 2 -> {
-                        nextSeq = higher
-                        null
-                    }
-                    else -> null
+                return data
+            }
+            // Missing packet: prefer short silence over skip (less "cut")
+            val higher = map.higherKey(seq)
+            return if (higher != null) {
+                if (higher - seq <= 5) {
+                    nextSeq = seq + 1
+                    // ~15ms comfort silence
+                    ByteArray(bytesPerMs * 15)
+                } else {
+                    // Big gap — jump forward once
+                    nextSeq = higher
+                    null
                 }
+            } else {
+                null // wait for data
             }
         }
     }
 
     fun isPrimed(): Boolean = primed.get()
+
+    fun bufferedMs(): Int = synchronized(lock) {
+        if (bytesPerMs <= 0) 0 else bufferedBytes / bytesPerMs
+    }
 
     fun reset() {
         synchronized(lock) {

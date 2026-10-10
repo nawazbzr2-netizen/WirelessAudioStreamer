@@ -17,6 +17,7 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.wireless.audiostreamer.audio.LowLatencyPlayer
 import com.wireless.audiostreamer.audio.SystemAudioCapturer
 import com.wireless.audiostreamer.network.BluetoothAudioHelper
@@ -51,6 +52,13 @@ class StreamingService : Service() {
         const val ROLE_SENDER = "SENDER"
         const val ROLE_RECEIVER = "RECEIVER"
 
+        /** UI status broadcast */
+        const val BROADCAST_STATUS = "com.wireless.audiostreamer.STATUS"
+        const val EXTRA_STATUS_CONNECTED = "connected"
+        const val EXTRA_STATUS_TEXT = "status_text"
+        const val EXTRA_STATUS_PEER = "peer"
+        const val EXTRA_STATUS_MODE = "mode"
+
         private const val CHANNEL_ID = "streaming_channel"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "StreamingService"
@@ -63,6 +71,7 @@ class StreamingService : Service() {
     @Volatile private var peerIp: String? = null
     private var btAddress: String? = null
     @Volatile private var role: String = ROLE_BOTH
+    @Volatile private var isPeerConnected = false
 
     private var capturer: SystemAudioCapturer? = null
     private var player: LowLatencyPlayer? = null
@@ -85,7 +94,6 @@ class StreamingService : Service() {
         audioManager = getSystemService(AUDIO_SERVICE) as AudioManager
         acquireWakeLock()
         acquireMulticastLock()
-        // Force all traffic on WiFi/hotspot interface — NO mobile data / internet
         LocalNetworkBinder.preferWifiNetwork(this)
     }
 
@@ -96,9 +104,7 @@ class StreamingService : Service() {
                 setReferenceCounted(false)
                 acquire()
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "multicast", e)
-        }
+        } catch (_: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -122,7 +128,7 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Local only (no internet)"))
+                    startForeground(NOTIFICATION_ID, buildNotification("Starting..."))
                     initConnection(resultCode, data)
                     started = true
                 }
@@ -149,62 +155,86 @@ class StreamingService : Service() {
         return START_STICKY
     }
 
+    private fun broadcastStatus(connected: Boolean, text: String) {
+        isPeerConnected = connected
+        val i = Intent(BROADCAST_STATUS).apply {
+            putExtra(EXTRA_STATUS_CONNECTED, connected)
+            putExtra(EXTRA_STATUS_TEXT, text)
+            putExtra(EXTRA_STATUS_PEER, peerIp ?: btAddress ?: "")
+            putExtra(EXTRA_STATUS_MODE, connectionType)
+        }
+        LocalBroadcastManager.getInstance(this).sendBroadcast(i)
+    }
+
     private fun setPeerIp(ip: String) {
         if (!LocalNetworkBinder.isPrivateIp(ip)) {
             Log.e(TAG, "Rejected non-local IP: $ip")
-            updateNotification("Invalid peer (not local LAN)")
             return
         }
         peerIp = ip
         udpStreamer?.stop()
         udpStreamer = UdpAudioStreamer(this, ip).also { it.start() }
-        Log.i(TAG, "LOCAL peer: $ip")
 
         if (role == ROLE_BOTH || role == ROLE_SENDER) {
             stopSenderCapture()
             startSenderCapture()
         }
-        updateNotification("LAN $ip | RX:$rxCount (no internet)")
+
+        val label = modeLabel()
+        val msg = "Connected \u2713  $label\nPeer: $ip"
+        updateNotification(msg.replace("\n", " | "))
+        broadcastStatus(true, msg)
+        Log.i(TAG, "CONNECTED peer=$ip mode=$connectionType")
+    }
+
+    private fun modeLabel(): String = when (connectionType) {
+        "BT" -> "Bluetooth"
+        "WIFI" -> "Wi-Fi / Hotspot"
+        else -> connectionType
     }
 
     private fun initConnection(resultCode: Int, data: Intent) {
         LocalNetworkBinder.preferWifiNetwork(this)
-
         try {
             val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpm.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
                 updateNotification("Screen cast fail")
+                broadcastStatus(false, "Screen cast fail")
                 return
             }
         } catch (e: Exception) {
             Log.e(TAG, "projection", e)
-            updateNotification("Screen cast error")
+            broadcastStatus(false, "Screen cast error")
             return
         }
 
-        val jitterMs = if (connectionType == "BT") 180 else 70
+        // Stable audio: 140ms WiFi, 200ms BT
+        val jitterMs = if (connectionType == "BT") 200 else 140
         player = LowLatencyPlayer(targetJitterMs = jitterMs).also { it.start() }
 
-        // WiFi/Hotspot path always ready for LAN UDP
-        if (connectionType != "BT") {
-            setupWifiReceiverAndDiscovery()
-        } else {
-            // BT only — no UDP internet path
-            setupWifiReceiverAndDiscovery() // still allow LAN if available
-            btAddress?.let { connectBluetooth(it) }
+        setupWifiReceiverAndDiscovery()
+        if (connectionType == "BT" && btAddress != null) {
+            connectBluetooth(btAddress!!)
         }
 
         applyRole(role)
         peerIp?.let { setPeerIp(it) }
 
+        if (peerIp == null && btAddress == null) {
+            broadcastStatus(false, "Waiting for peer...")
+            updateNotification("Waiting for peer...")
+        }
+
         serviceScope.launch {
             while (started) {
-                delay(2000)
+                delay(2500)
                 val tx = udpStreamer?.packetsSent ?: 0
-                val mode = if (connectionType == "BT") "BT" else "LAN"
-                updateNotification("$mode peer:${peerIp ?: "?"} TX:$tx RX:$rxCount"
-                )
+                if (isPeerConnected) {
+                    updateNotification(
+                        "Connected \u2713 ${modeLabel()} | TX:$tx RX:$rxCount"
+                    )
+                }
             }
         }
     }
@@ -238,6 +268,10 @@ class StreamingService : Service() {
             if (btHelper == null) {
                 btHelper = BluetoothAudioHelper { pcm ->
                     rxCount++
+                    if (!isPeerConnected) {
+                        isPeerConnected = true
+                        broadcastStatus(true, "Connected \u2713  Bluetooth\n$address")
+                    }
                     if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                         player?.enqueue((System.nanoTime() % Int.MAX_VALUE).toInt(), pcm)
                     }
@@ -246,9 +280,19 @@ class StreamingService : Service() {
             }
             val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
             btHelper?.connectToDevice(adapter.getRemoteDevice(address), serviceScope)
-            updateNotification("BT link $address (no internet)")
+            // Mark connected when we attempt (RFCOMM may take a moment)
+            serviceScope.launch {
+                delay(1500)
+                if (btHelper?.isConnected() == true) {
+                    isPeerConnected = true
+                    val msg = "Connected \u2713  Bluetooth\n$address"
+                    updateNotification(msg.replace("\n", " | "))
+                    broadcastStatus(true, msg)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "BT", e)
+            broadcastStatus(false, "Bluetooth failed")
         }
     }
 
@@ -291,7 +335,6 @@ class StreamingService : Service() {
             }
         }
         capturer?.start(serviceScope)
-        Log.i(TAG, "CAPTURE ON (local only)")
     }
 
     private fun stopSenderCapture() {
@@ -324,6 +367,8 @@ class StreamingService : Service() {
 
     private fun stopEverything() {
         started = false
+        isPeerConnected = false
+        broadcastStatus(false, "Disconnected")
         muteLocalSpeaker(false)
         stopSenderCapture()
         player?.stop(); player = null
@@ -356,7 +401,7 @@ class StreamingService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Wireless Audio (Local)")
+            .setContentTitle("Wireless Audio")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(pi)
