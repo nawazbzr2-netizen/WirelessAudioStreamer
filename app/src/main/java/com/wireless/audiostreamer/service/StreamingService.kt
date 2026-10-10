@@ -17,7 +17,6 @@ import android.os.IBinder
 import android.os.PowerManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
-import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.wireless.audiostreamer.audio.LowLatencyPlayer
 import com.wireless.audiostreamer.audio.SystemAudioCapturer
 import com.wireless.audiostreamer.network.BluetoothAudioHelper
@@ -52,7 +51,6 @@ class StreamingService : Service() {
         const val ROLE_SENDER = "SENDER"
         const val ROLE_RECEIVER = "RECEIVER"
 
-        /** UI status broadcast */
         const val BROADCAST_STATUS = "com.wireless.audiostreamer.STATUS"
         const val EXTRA_STATUS_CONNECTED = "connected"
         const val EXTRA_STATUS_TEXT = "status_text"
@@ -158,19 +156,23 @@ class StreamingService : Service() {
     private fun broadcastStatus(connected: Boolean, text: String) {
         isPeerConnected = connected
         val i = Intent(BROADCAST_STATUS).apply {
+            setPackage(packageName)
             putExtra(EXTRA_STATUS_CONNECTED, connected)
             putExtra(EXTRA_STATUS_TEXT, text)
             putExtra(EXTRA_STATUS_PEER, peerIp ?: btAddress ?: "")
             putExtra(EXTRA_STATUS_MODE, connectionType)
         }
-        LocalBroadcastManager.getInstance(this).sendBroadcast(i)
+        sendBroadcast(i)
+    }
+
+    private fun modeLabel(): String = when (connectionType) {
+        "BT" -> "Bluetooth"
+        "WIFI" -> "Wi-Fi / Hotspot"
+        else -> connectionType
     }
 
     private fun setPeerIp(ip: String) {
-        if (!LocalNetworkBinder.isPrivateIp(ip)) {
-            Log.e(TAG, "Rejected non-local IP: $ip")
-            return
-        }
+        if (!LocalNetworkBinder.isPrivateIp(ip)) return
         peerIp = ip
         udpStreamer?.stop()
         udpStreamer = UdpAudioStreamer(this, ip).also { it.start() }
@@ -180,17 +182,10 @@ class StreamingService : Service() {
             startSenderCapture()
         }
 
-        val label = modeLabel()
-        val msg = "Connected \u2713  $label\nPeer: $ip"
-        updateNotification(msg.replace("\n", " | "))
+        val msg = "Connected \u2713  ${modeLabel()}\nPeer: $ip"
+        updateNotification("Connected \u2713 ${modeLabel()} | $ip")
         broadcastStatus(true, msg)
-        Log.i(TAG, "CONNECTED peer=$ip mode=$connectionType")
-    }
-
-    private fun modeLabel(): String = when (connectionType) {
-        "BT" -> "Bluetooth"
-        "WIFI" -> "Wi-Fi / Hotspot"
-        else -> connectionType
+        Log.i(TAG, "CONNECTED $ip")
     }
 
     private fun initConnection(resultCode: Int, data: Intent) {
@@ -199,7 +194,6 @@ class StreamingService : Service() {
             val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             mediaProjection = mpm.getMediaProjection(resultCode, data)
             if (mediaProjection == null) {
-                updateNotification("Screen cast fail")
                 broadcastStatus(false, "Screen cast fail")
                 return
             }
@@ -209,7 +203,6 @@ class StreamingService : Service() {
             return
         }
 
-        // Stable audio: 140ms WiFi, 200ms BT
         val jitterMs = if (connectionType == "BT") 200 else 140
         player = LowLatencyPlayer(targetJitterMs = jitterMs).also { it.start() }
 
@@ -231,9 +224,7 @@ class StreamingService : Service() {
                 delay(2500)
                 val tx = udpStreamer?.packetsSent ?: 0
                 if (isPeerConnected) {
-                    updateNotification(
-                        "Connected \u2713 ${modeLabel()} | TX:$tx RX:$rxCount"
-                    )
+                    updateNotification("Connected \u2713 ${modeLabel()} | TX:$tx RX:$rxCount")
                 }
             }
         }
@@ -245,9 +236,7 @@ class StreamingService : Service() {
         udpReceiver = UdpAudioReceiver(this) { fromIp, seq, _, payload ->
             if (!LocalNetworkBinder.isPrivateIp(fromIp)) return@UdpAudioReceiver
             rxCount++
-            if (peerIp == null || peerIp != fromIp) {
-                setPeerIp(fromIp)
-            }
+            if (peerIp == null || peerIp != fromIp) setPeerIp(fromIp)
             if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                 player?.enqueue(seq, payload)
             }
@@ -255,9 +244,7 @@ class StreamingService : Service() {
         udpReceiver?.start(serviceScope)
 
         discovery = DiscoveryHelper(this) { ip ->
-            if (LocalNetworkBinder.isPrivateIp(ip) && peerIp == null) {
-                setPeerIp(ip)
-            }
+            if (LocalNetworkBinder.isPrivateIp(ip) && peerIp == null) setPeerIp(ip)
         }
         discovery?.start(serviceScope)
     }
@@ -270,7 +257,9 @@ class StreamingService : Service() {
                     rxCount++
                     if (!isPeerConnected) {
                         isPeerConnected = true
-                        broadcastStatus(true, "Connected \u2713  Bluetooth\n$address")
+                        val msg = "Connected \u2713  Bluetooth\n$address"
+                        broadcastStatus(true, msg)
+                        updateNotification("Connected \u2713 Bluetooth")
                     }
                     if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                         player?.enqueue((System.nanoTime() % Int.MAX_VALUE).toInt(), pcm)
@@ -280,13 +269,12 @@ class StreamingService : Service() {
             }
             val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
             btHelper?.connectToDevice(adapter.getRemoteDevice(address), serviceScope)
-            // Mark connected when we attempt (RFCOMM may take a moment)
             serviceScope.launch {
                 delay(1500)
                 if (btHelper?.isConnected() == true) {
                     isPeerConnected = true
                     val msg = "Connected \u2713  Bluetooth\n$address"
-                    updateNotification(msg.replace("\n", " | "))
+                    updateNotification("Connected \u2713 Bluetooth")
                     broadcastStatus(true, msg)
                 }
             }

@@ -3,8 +3,12 @@ package com.wireless.audiostreamer.ui
 import android.Manifest
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
@@ -43,6 +47,43 @@ class MainActivity : AppCompatActivity() {
     private var pendingPeerIp: String? = null
     private var pendingBtAddress: String? = null
 
+    private val statusReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != StreamingService.BROADCAST_STATUS) return
+            val connected = intent.getBooleanExtra(StreamingService.EXTRA_STATUS_CONNECTED, false)
+            val text = intent.getStringExtra(StreamingService.EXTRA_STATUS_TEXT) ?: ""
+            val mode = intent.getStringExtra(StreamingService.EXTRA_STATUS_MODE) ?: ""
+            val peer = intent.getStringExtra(StreamingService.EXTRA_STATUS_PEER) ?: ""
+
+            runOnUiThread {
+                if (connected) {
+                    binding.tvConnectedCount.text = "Connected \u2713"
+                    binding.tvConnectedCount.setTextColor(Color.parseColor("#2E7D32"))
+                    binding.tvStatus.text = when (mode) {
+                        "BT" -> "Connected via Bluetooth\n$peer"
+                        else -> "Connected via Wi-Fi / Hotspot\nPeer: $peer"
+                    }
+                    binding.tvStatus.setTextColor(Color.parseColor("#2E7D32"))
+                    binding.roleBar.visibility = View.VISIBLE
+                } else {
+                    if (text.contains("Waiting", ignoreCase = true)) {
+                        binding.tvConnectedCount.text = "Waiting..."
+                        binding.tvConnectedCount.setTextColor(Color.parseColor("#F9A825"))
+                        binding.tvStatus.text = text
+                        binding.tvStatus.setTextColor(Color.parseColor("#F9A825"))
+                    } else if (text.contains("Disconnect", ignoreCase = true)) {
+                        binding.tvConnectedCount.text = "Disconnected"
+                        binding.tvConnectedCount.setTextColor(Color.parseColor("#C62828"))
+                        binding.tvStatus.text = text
+                        binding.tvStatus.setTextColor(Color.parseColor("#888888"))
+                    } else {
+                        binding.tvStatus.text = text
+                    }
+                }
+            }
+        }
+    }
+
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -72,7 +113,15 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         LocalNetworkBinder.preferWifiNetwork(this)
-        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()} (LAN only)"
+        binding.tvMyInfo.text = "${Build.MODEL} \u00b7 ${DiscoveryHelper.localIp()} (LAN only)"
+
+        val filter = IntentFilter(StreamingService.BROADCAST_STATUS)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(statusReceiver, filter, RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(statusReceiver, filter)
+        }
+
         setupTabs()
         setupClicks()
         askPermissions()
@@ -91,7 +140,7 @@ class MainActivity : AppCompatActivity() {
     private fun connectToPeer(peerIp: String?, btAddress: String?, mode: String) {
         connectionMode = mode
         if (peerIp != null && !LocalNetworkBinder.isPrivateIp(peerIp)) {
-            Toast.makeText(this, "Sirf local WiFi/Hotspot IP allowed", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Sirf local IP", Toast.LENGTH_SHORT).show()
             return
         }
         if (savedResultData == null) {
@@ -108,8 +157,9 @@ class MainActivity : AppCompatActivity() {
                 putExtra(StreamingService.EXTRA_BT_ADDRESS, btAddress)
                 putExtra(StreamingService.EXTRA_CONNECTION_TYPE, mode)
             })
-            showConnectedUI()
-            Toast.makeText(this, "Local peer set (no internet)", Toast.LENGTH_SHORT).show()
+            binding.tvConnectedCount.text = "Connecting..."
+            binding.tvConnectedCount.setTextColor(Color.parseColor("#F9A825"))
+            binding.tvStatus.text = "Peer set — wait for Connected..."
         } else {
             startServiceWithGrant(peerIp, btAddress)
         }
@@ -121,10 +171,9 @@ class MainActivity : AppCompatActivity() {
         val bt = btAddress ?: pendingBtAddress
         pendingPeerIp = null
         pendingBtAddress = null
-
         LocalNetworkBinder.preferWifiNetwork(this)
 
-        val intent = Intent(this, StreamingService::class.java).apply {
+        startForegroundServiceSafe(Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_START
             putExtra(StreamingService.EXTRA_RESULT_CODE, savedResultCode)
             putExtra(StreamingService.EXTRA_RESULT_DATA, data)
@@ -132,10 +181,16 @@ class MainActivity : AppCompatActivity() {
             putExtra(StreamingService.EXTRA_PEER_IP, ip)
             putExtra(StreamingService.EXTRA_BT_ADDRESS, bt)
             putExtra(StreamingService.EXTRA_ROLE, StreamingService.ROLE_BOTH)
-        }
-        ContextCompat.startForegroundService(this, intent)
+        })
         isStreaming = true
-        showConnectedUI()
+        binding.roleBar.visibility = View.VISIBLE
+        binding.tvConnectedCount.text = "Waiting..."
+        binding.tvConnectedCount.setTextColor(Color.parseColor("#F9A825"))
+        binding.tvStatus.text = "Waiting for peer connection..."
+    }
+
+    private fun startForegroundServiceSafe(intent: Intent) {
+        ContextCompat.startForegroundService(this, intent)
     }
 
     private fun setupTabs() {
@@ -165,7 +220,6 @@ class MainActivity : AppCompatActivity() {
             connectionMode = "WIFI"
             LocalNetworkBinder.preferWifiNetwork(this)
             startWifiReady()
-            Toast.makeText(this, "Scanning local LAN...", Toast.LENGTH_SHORT).show()
         }
         binding.btnStartListen.setOnClickListener {
             connectionMode = "WIFI"
@@ -226,7 +280,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         discovery?.start(uiScope)
-        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()} (LAN only)"
+        binding.tvMyInfo.text = "${Build.MODEL} \u00b7 ${DiscoveryHelper.localIp()} (LAN only)"
     }
 
     private fun rebuildPeerList() {
@@ -240,7 +294,7 @@ class MainActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this)
                 .inflate(android.R.layout.simple_list_item_2, binding.listPeers, false)
             row.findViewById<TextView>(android.R.id.text1).text = "Phone (local)"
-            row.findViewById<TextView>(android.R.id.text2).text = "IP: $ip  · Tap"
+            row.findViewById<TextView>(android.R.id.text2).text = "IP: $ip  \u00b7 Tap"
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
             row.setOnClickListener { connectToPeer(ip, null, "WIFI") }
@@ -251,7 +305,6 @@ class MainActivity : AppCompatActivity() {
             lp.bottomMargin = 12
             binding.listPeers.addView(row, lp)
         }
-        binding.tvConnectedCount.text = "Found (${peers.size})"
     }
 
     @SuppressLint("MissingPermission")
@@ -271,7 +324,7 @@ class MainActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this)
                 .inflate(android.R.layout.simple_list_item_2, binding.listBtDevices, false)
             row.findViewById<TextView>(android.R.id.text1).text = device.name ?: "Unknown"
-            row.findViewById<TextView>(android.R.id.text2).text = "${device.address} · BT only"
+            row.findViewById<TextView>(android.R.id.text2).text = "${device.address} \u00b7 BT"
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
             row.setOnClickListener { connectToPeer(null, device.address, "BT") }
@@ -289,14 +342,6 @@ class MainActivity : AppCompatActivity() {
             action = StreamingService.ACTION_SET_ROLE
             putExtra(StreamingService.EXTRA_ROLE, role)
         })
-        binding.tvStatus.text = "Role: $role"
-    }
-
-    private fun showConnectedUI() {
-        binding.roleBar.visibility = View.VISIBLE
-        binding.tvConnectedCount.text = "Running (local only)"
-        binding.tvStatus.text = "No internet used. WiFi/Hotspot/BT only."
-        binding.tvRoleHint.text = "Hotspot without internet bhi chalega"
     }
 
     private fun stopStreamingFully() {
@@ -307,10 +352,13 @@ class MainActivity : AppCompatActivity() {
         savedResultData = null
         savedResultCode = 0
         binding.roleBar.visibility = View.GONE
+        binding.tvConnectedCount.text = "Disconnected"
+        binding.tvConnectedCount.setTextColor(Color.parseColor("#C62828"))
         binding.tvStatus.text = "Disconnected"
     }
 
     override fun onDestroy() {
+        try { unregisterReceiver(statusReceiver) } catch (_: Exception) {}
         if (isFinishing) stopStreamingFully()
         discovery?.stop()
         uiScope.cancel()
