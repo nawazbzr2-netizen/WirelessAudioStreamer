@@ -1,140 +1,274 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="#0D0D0D">
+    android:orientation="vertical"
+    android:background="#F5F3FF">
 
+    <!-- Header -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp"
-        android:gravity="center_horizontal">
+        android:padding="20dp"
+        android:background="#FFFFFF">
 
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Wireless Audio"
-            android:textSize="26sp"
+            android:textSize="24sp"
             android:textStyle="bold"
-            android:textColor="#FFFFFF"
-            android:layout_marginTop="16dp" />
+            android:textColor="#1A1A1A" />
 
         <TextView
+            android:id="@+id/tvMyInfo"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Dono phones auto connect + background mein chalega"
+            android:text="My phone"
             android:textSize="13sp"
-            android:textColor="#90A4AE"
-            android:layout_marginTop="6dp"
-            android:layout_marginBottom="28dp" />
+            android:textColor="#666666"
+            android:layout_marginTop="2dp" />
+
+        <TextView
+            android:id="@+id/tvConnectedCount"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connected (0)"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            android:textColor="#1A1A1A"
+            android:layout_marginTop="12dp" />
+
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Nobody yet. Neeche se connect karo."
+            android:textSize="13sp"
+            android:textColor="#888888"
+            android:layout_marginTop="2dp" />
+    </LinearLayout>
+
+    <!-- Tabs -->
+    <com.google.android.material.tabs.TabLayout
+        android:id="@+id/tabLayout"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        app:tabIndicatorColor="#6A1B9A"
+        app:tabSelectedTextColor="#6A1B9A"
+        app:tabTextColor="#888888"
+        app:tabMode="fixed"
+        app:tabGravity="fill">
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wi-Fi / Hotspot" />
+
+        <com.google.android.material.tabs.TabItem
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Bluetooth" />
+    </com.google.android.material.tabs>
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+        <!-- WiFi Panel -->
+        <ScrollView
+            android:id="@+id/panelWifi"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Same WiFi ya Hotspot pe phones yahan dikhenge. Tap karke connect karo."
+                    android:textSize="13sp"
+                    android:textColor="#666666"
+                    android:layout_marginBottom="12dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnScan"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Scan network"
+                        android:textSize="13sp"
+                        app:backgroundTint="#6A1B9A"
+                        android:layout_marginEnd="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnStartListen"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Start / Ready"
+                        android:textSize="13sp"
+                        app:backgroundTint="#6A1B9A" />
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Discovered phones"
+                    android:textSize="14sp"
+                    android:textStyle="bold"
+                    android:textColor="#333333"
+                    android:layout_marginBottom="8dp" />
+
+                <LinearLayout
+                    android:id="@+id/listPeers"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+
+                <TextView
+                    android:id="@+id/tvNoPeers"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Abhi koi nahi mila. Dono phones pe Start/Ready dabao."
+                    android:textSize="13sp"
+                    android:textColor="#999999"
+                    android:padding="16dp"
+                    android:gravity="center" />
+            </LinearLayout>
+        </ScrollView>
+
+        <!-- Bluetooth Panel -->
+        <ScrollView
+            android:id="@+id/panelBluetooth"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="16dp"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1) Android settings se phones pair karo. 2) Dono pe app kholo. 3) Neeche paired phone pe tap karo."
+                    android:textSize="13sp"
+                    android:textColor="#666666"
+                    android:layout_marginBottom="12dp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="12dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnRefreshBt"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Refresh paired"
+                        android:textSize="13sp"
+                        app:backgroundTint="#6A1B9A"
+                        android:layout_marginEnd="8dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnBtSettings"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Bluetooth settings"
+                        android:textSize="12sp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                </LinearLayout>
+
+                <LinearLayout
+                    android:id="@+id/listBtDevices"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical" />
+            </LinearLayout>
+        </ScrollView>
+    </FrameLayout>
+
+    <!-- Role bar (after connected) -->
+    <LinearLayout
+        android:id="@+id/roleBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:background="#FFFFFF"
+        android:visibility="gone"
+        android:elevation="8dp">
 
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Connection type"
-            android:textSize="14sp"
-            android:textColor="#B0BEC5"
-            android:layout_marginBottom="10dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSameWifi"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Same WiFi"
-            android:textSize="16sp"
-            android:textColor="#FFFFFF"
-            app:backgroundTint="#1E88E5"
-            android:layout_marginBottom="10dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnHotspot"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Hotspot"
-            android:textSize="16sp"
-            android:textColor="#FFFFFF"
-            app:backgroundTint="#00897B"
-            android:layout_marginBottom="10dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBluetooth"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:text="Bluetooth"
-            android:textSize="16sp"
-            android:textColor="#FFFFFF"
-            app:backgroundTint="#5E35B1"
-            android:layout_marginBottom="24dp" />
+            android:text="Is phone ka role"
+            android:textSize="13sp"
+            android:textColor="#666666"
+            android:layout_marginBottom="8dp" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="#1A1A1A"
-            android:padding="18dp"
-            android:layout_marginBottom="20dp">
+            android:orientation="horizontal">
 
-            <TextView
-                android:id="@+id/tvStatus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Abhi connected nahi"
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRoleSender"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Sender"
                 android:textSize="15sp"
-                android:textColor="#81C784"
-                android:gravity="center" />
+                app:backgroundTint="#E65100"
+                android:layout_marginEnd="8dp" />
 
-            <TextView
-                android:id="@+id/tvConnectionType"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Same WiFi"
-                android:textSize="13sp"
-                android:textColor="#FFB74D"
-                android:gravity="center"
-                android:layout_marginTop="6dp" />
-
-            <TextView
-                android:id="@+id/tvLatency"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="Latency: -- ms"
-                android:textSize="20sp"
-                android:textStyle="bold"
-                android:textColor="#4FC3F7"
-                android:gravity="center"
-                android:layout_marginTop="8dp" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRoleReceiver"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Receiver"
+                android:textSize="15sp"
+                app:backgroundTint="#2E7D32" />
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnConnect"
+        <TextView
+            android:id="@+id/tvRoleHint"
             android:layout_width="match_parent"
-            android:layout_height="64dp"
-            android:text="Connect karo"
-            android:textSize="18sp"
-            android:textColor="#FFFFFF"
-            app:backgroundTint="#43A047"
-            android:layout_marginBottom="10dp" />
+            android:layout_height="wrap_content"
+            android:text="Sender = is phone ki awaaz dusre pe\nReceiver = dusre phone ki awaaz yahan"
+            android:textSize="12sp"
+            android:textColor="#888888"
+            android:layout_marginTop="8dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDisconnect"
             android:layout_width="match_parent"
-            android:layout_height="52dp"
+            android:layout_height="44dp"
             android:text="Disconnect"
-            android:textSize="15sp"
-            android:visibility="gone"
+            android:textSize="14sp"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_marginBottom="20dp" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Kaise use karein:\n\n1. Dono phones pe app install karo\n2. Same WiFi ya Hotspot pe rakho\n3. DONO phones pe Connect dabao (permission allow)\n4. Auto mil jayenge\n5. Screen off / minimize kar sakte ho — disconnect nahi hoga\n6. Ek pe gana chalao, dusre pe suno"
-            android:textSize="13sp"
-            android:textColor="#78909C"
-            android:lineSpacingExtra="3dp" />
-
+            android:layout_marginTop="10dp" />
     </LinearLayout>
-</ScrollView>
+
+</LinearLayout>
