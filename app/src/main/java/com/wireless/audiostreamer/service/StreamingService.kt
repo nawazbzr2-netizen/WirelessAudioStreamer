@@ -20,8 +20,7 @@ import kotlinx.coroutines.cancel
 class StreamingService : Service() {
 
     companion object {
-        const val ACTION_START_SENDER = "com.wireless.audiostreamer.START_SENDER"
-        const val ACTION_START_RECEIVER = "com.wireless.audiostreamer.START_RECEIVER"
+        const val ACTION_START = "com.wireless.audiostreamer.START"
         const val ACTION_STOP = "com.wireless.audiostreamer.STOP"
 
         const val EXTRA_RESULT_CODE = "result_code"
@@ -45,7 +44,7 @@ class StreamingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START_SENDER -> {
+            ACTION_START -> {
                 connectionType = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: "NONE"
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -56,17 +55,10 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Sender ($connectionType)"))
-                    startSender(resultCode, data)
+                    startForeground(NOTIFICATION_ID, buildNotification("Connected ($connectionType)"))
+                    startStreaming(resultCode, data)
                 }
             }
-
-            ACTION_START_RECEIVER -> {
-                connectionType = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: "NONE"
-                startForeground(NOTIFICATION_ID, buildNotification("Receiver ($connectionType)"))
-                startReceiver()
-            }
-
             ACTION_STOP -> {
                 stopEverything()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -76,29 +68,13 @@ class StreamingService : Service() {
         return START_STICKY
     }
 
-    private fun startSender(resultCode: Int, data: Intent) {
+    private fun startStreaming(resultCode: Int, data: Intent) {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
 
-        when (connectionType) {
-            "SAME_WIFI", "HOTSPOT" -> {
-                // TODO: Start system audio capture + UDP over WiFi/Hotspot
-            }
-            "BLUETOOTH" -> {
-                // TODO: Bluetooth path (limited)
-            }
-        }
-    }
-
-    private fun startReceiver() {
-        when (connectionType) {
-            "SAME_WIFI", "HOTSPOT" -> {
-                // TODO: Start UDP receiver + low latency player
-            }
-            "BLUETOOTH" -> {
-                // TODO: Bluetooth receiver path
-            }
-        }
+        // TODO: Real audio capture + UDP / Bluetooth streaming
+        // Abhi skeleton hai — actual sound transfer ke liye
+        // SystemAudioCapturer + UdpAudioStreamer + LowLatencyPlayer wire karna hai
     }
 
     private fun stopEverything() {
@@ -112,26 +88,22 @@ class StreamingService : Service() {
                 CHANNEL_ID,
                 "Audio Streaming",
                 NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = "Shows while audio is being streamed"
-            }
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
+            )
+            getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun buildNotification(content: String): Notification {
-        val pendingIntent = PendingIntent.getActivity(
+        val pi = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Wireless Audio Streamer")
+            .setContentTitle("Wireless Audio")
             .setContentText(content)
             .setSmallIcon(android.R.drawable.ic_media_play)
-            .setContentIntent(pendingIntent)
+            .setContentIntent(pi)
             .setOngoing(true)
             .build()
     }

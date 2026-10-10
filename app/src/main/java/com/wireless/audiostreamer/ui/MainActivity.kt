@@ -6,11 +6,11 @@ import android.content.pm.PackageManager
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
+import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.wireless.audiostreamer.R
 import com.wireless.audiostreamer.databinding.ActivityMainBinding
 import com.wireless.audiostreamer.service.StreamingService
 
@@ -21,34 +21,27 @@ enum class ConnectionType {
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var isSenderMode = true
     private var selectedConnection = ConnectionType.NONE
+    private var isConnected = false
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            val intent = Intent(this, StreamingService::class.java).apply {
-                action = StreamingService.ACTION_START_SENDER
-                putExtra(StreamingService.EXTRA_RESULT_CODE, result.resultCode)
-                putExtra(StreamingService.EXTRA_RESULT_DATA, result.data)
-                putExtra(StreamingService.EXTRA_CONNECTION_TYPE, selectedConnection.name)
-            }
-            ContextCompat.startForegroundService(this, intent)
-            updateUI(streaming = true)
+            startServiceWithProjection(result.resultCode, result.data!!)
         } else {
-            Toast.makeText(this, "Permission denied. System audio capture nahi ho sakta.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Permission chahiye thi. Dobara try karo.", Toast.LENGTH_LONG).show()
+            setConnected(false)
         }
     }
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        val allGranted = permissions.values.all { it }
-        if (allGranted) {
-            proceedAfterPermissions()
+        if (permissions.values.all { it }) {
+            startConnection()
         } else {
-            Toast.makeText(this, "Zaroori permissions nahi mili", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Permissions allow karo", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -56,176 +49,126 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        setupUI()
+        setupClicks()
     }
 
-    private fun setupUI() {
-        // Mode selection
-        binding.btnSender.setOnClickListener {
-            isSenderMode = true
-            binding.btnSender.isEnabled = false
-            binding.btnReceiver.isEnabled = true
-            binding.tvMode.text = "Mode: Sender (System Audio)"
-        }
+    private fun setupClicks() {
+        binding.btnSameWifi.setOnClickListener { selectType(ConnectionType.SAME_WIFI) }
+        binding.btnHotspot.setOnClickListener { selectType(ConnectionType.HOTSPOT) }
+        binding.btnBluetooth.setOnClickListener { selectType(ConnectionType.BLUETOOTH) }
 
-        binding.btnReceiver.setOnClickListener {
-            isSenderMode = false
-            binding.btnReceiver.isEnabled = false
-            binding.btnSender.isEnabled = true
-            binding.tvMode.text = "Mode: Receiver (Speaker)"
-        }
-
-        // Connection type buttons
-        binding.btnSameWifi.setOnClickListener {
-            selectConnection(ConnectionType.SAME_WIFI)
-        }
-
-        binding.btnHotspot.setOnClickListener {
-            selectConnection(ConnectionType.HOTSPOT)
-        }
-
-        binding.btnBluetooth.setOnClickListener {
-            selectConnection(ConnectionType.BLUETOOTH)
-        }
-
-        // Start / Stop
-        binding.btnStartStop.setOnClickListener {
-            if (binding.btnStartStop.text == getString(R.string.start_streaming)) {
-                if (selectedConnection == ConnectionType.NONE) {
-                    Toast.makeText(this, "Pehle connection type select karo (WiFi / Hotspot / Bluetooth)", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                checkPermissionsAndStart()
-            } else {
-                stopStreaming()
+        binding.btnConnect.setOnClickListener {
+            if (selectedConnection == ConnectionType.NONE) {
+                Toast.makeText(this, "Pehle upar se connection type choose karo", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
             }
+            checkPermissionsAndConnect()
         }
 
-        // Default
-        binding.btnSender.performClick()
+        binding.btnDisconnect.setOnClickListener {
+            stopService()
+            setConnected(false)
+        }
     }
 
-    private fun selectConnection(type: ConnectionType) {
+    private fun selectType(type: ConnectionType) {
         selectedConnection = type
 
-        // Reset all buttons style
-        binding.btnSameWifi.strokeWidth = 2
-        binding.btnHotspot.strokeWidth = 2
-        binding.btnBluetooth.strokeWidth = 2
+        // Reset colors
+        binding.btnSameWifi.setBackgroundColor(0xFF1E88E5.toInt())
+        binding.btnHotspot.setBackgroundColor(0xFF00897B.toInt())
+        binding.btnBluetooth.setBackgroundColor(0xFF5E35B1.toInt())
 
         when (type) {
             ConnectionType.SAME_WIFI -> {
-                binding.btnSameWifi.strokeWidth = 6
-                binding.tvConnectionType.text = "Selected: Same WiFi"
-                binding.tvStatus.text = "Same WiFi pe dono phones connect hon"
+                binding.btnSameWifi.setBackgroundColor(0xFF1565C0.toInt())
+                binding.tvConnectionType.text = "Same WiFi selected"
+                binding.tvStatus.text = "Dono phones same WiFi pe hon"
             }
             ConnectionType.HOTSPOT -> {
-                binding.btnHotspot.strokeWidth = 6
-                binding.tvConnectionType.text = "Selected: Hotspot + WiFi"
-                binding.tvStatus.text = "Ek phone Hotspot on kare, dusra usse connect kare"
+                binding.btnHotspot.setBackgroundColor(0xFF00695C.toInt())
+                binding.tvConnectionType.text = "Hotspot selected"
+                binding.tvStatus.text = "Ek phone Hotspot on kare, dusra usse jud jaye"
             }
             ConnectionType.BLUETOOTH -> {
-                binding.btnBluetooth.strokeWidth = 6
-                binding.tvConnectionType.text = "Selected: Bluetooth"
-                binding.tvStatus.text = "Bluetooth pairing se connect hoga"
+                binding.btnBluetooth.setBackgroundColor(0xFF4527A0.toInt())
+                binding.tvConnectionType.text = "Bluetooth selected"
+                binding.tvStatus.text = "Bluetooth on rakho (limited support)"
             }
             else -> {}
         }
     }
 
-    private fun checkPermissionsAndStart() {
-        val permissions = mutableListOf(
+    private fun checkPermissionsAndConnect() {
+        val needed = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions.add(Manifest.permission.NEARBY_WIFI_DEVICES)
-            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
-            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
-            permissions.add(Manifest.permission.BLUETOOTH_SCAN)
-            permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+            needed += listOf(
+                Manifest.permission.NEARBY_WIFI_DEVICES,
+                Manifest.permission.POST_NOTIFICATIONS,
+                Manifest.permission.BLUETOOTH_CONNECT,
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_ADVERTISE
+            )
         }
 
-        val needed = permissions.filter {
+        val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (needed.isNotEmpty()) {
-            permissionLauncher.launch(needed.toTypedArray())
+        if (missing.isNotEmpty()) {
+            permissionLauncher.launch(missing.toTypedArray())
         } else {
-            proceedAfterPermissions()
+            startConnection()
         }
     }
 
-    private fun proceedAfterPermissions() {
-        when (selectedConnection) {
-            ConnectionType.SAME_WIFI,
-            ConnectionType.HOTSPOT -> {
-                // WiFi / Hotspot path
-                if (isSenderMode) {
-                    requestMediaProjection()
-                } else {
-                    startReceiver()
-                }
-            }
-            ConnectionType.BLUETOOTH -> {
-                // Bluetooth path (limited on phones)
-                Toast.makeText(
-                    this,
-                    "Bluetooth phone-to-phone audio limited hai. WiFi/Hotspot better hai.",
-                    Toast.LENGTH_LONG
-                ).show()
-                if (isSenderMode) {
-                    requestMediaProjection()
-                } else {
-                    startReceiver()
-                }
-            }
-            else -> {
-                Toast.makeText(this, "Connection type select karo", Toast.LENGTH_SHORT).show()
-            }
-        }
-    }
-
-    private fun requestMediaProjection() {
+    private fun startConnection() {
+        // System audio ke liye MediaProjection chahiye
+        // Dono phones pe permission lenge taake dono sound bhej/suna saken
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
     }
 
-    private fun startReceiver() {
+    private fun startServiceWithProjection(resultCode: Int, data: Intent) {
         val intent = Intent(this, StreamingService::class.java).apply {
-            action = StreamingService.ACTION_START_RECEIVER
+            action = StreamingService.ACTION_START
+            putExtra(StreamingService.EXTRA_RESULT_CODE, resultCode)
+            putExtra(StreamingService.EXTRA_RESULT_DATA, data)
             putExtra(StreamingService.EXTRA_CONNECTION_TYPE, selectedConnection.name)
         }
         ContextCompat.startForegroundService(this, intent)
-        updateUI(streaming = true)
+        setConnected(true)
     }
 
-    private fun stopStreaming() {
+    private fun stopService() {
         val intent = Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_STOP
         }
         startService(intent)
-        updateUI(streaming = false)
     }
 
-    private fun updateUI(streaming: Boolean) {
-        if (streaming) {
-            binding.btnStartStop.text = getString(R.string.stop_streaming)
-            binding.tvStatus.text = if (isSenderMode) "Sender running…" else "Receiver running…"
-            // Disable connection buttons while streaming
+    private fun setConnected(connected: Boolean) {
+        isConnected = connected
+        if (connected) {
+            binding.tvStatus.text = "Connected — sound share ho sakta hai"
+            binding.btnConnect.visibility = View.GONE
+            binding.btnDisconnect.visibility = View.VISIBLE
             binding.btnSameWifi.isEnabled = false
             binding.btnHotspot.isEnabled = false
             binding.btnBluetooth.isEnabled = false
         } else {
-            binding.btnStartStop.text = getString(R.string.start_streaming)
-            binding.tvStatus.text = "Idle"
+            binding.tvStatus.text = "Abhi connected nahi"
+            binding.tvConnectionType.text = ""
             binding.tvLatency.text = "Latency: -- ms"
+            binding.btnConnect.visibility = View.VISIBLE
+            binding.btnDisconnect.visibility = View.GONE
             binding.btnSameWifi.isEnabled = true
             binding.btnHotspot.isEnabled = true
             binding.btnBluetooth.isEnabled = true
+            selectedConnection = ConnectionType.NONE
         }
     }
 }

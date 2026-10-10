@@ -4,186 +4,142 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="#121212">
+    android:background="#0D0D0D">
 
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="24dp">
+        android:orientation="vertical"
+        android:padding="24dp"
+        android:gravity="center_horizontal">
 
         <TextView
-            android:id="@+id/tvTitle"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Wireless Audio Streamer"
-            android:textSize="22sp"
+            android:text="Wireless Audio"
+            android:textSize="26sp"
             android:textStyle="bold"
             android:textColor="#FFFFFF"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            android:layout_marginTop="16dp" />
 
         <TextView
-            android:id="@+id/tvMode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Mode: Sender (System Audio)"
-            android:textSize="16sp"
-            android:textColor="#B0BEC5"
-            android:layout_marginTop="12dp"
-            app:layout_constraintTop_toBottomOf="@id/tvTitle"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-
-        <!-- Mode Buttons -->
-        <LinearLayout
-            android:id="@+id/modeButtons"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="24dp"
-            app:layout_constraintTop_toBottomOf="@id/tvMode"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnSender"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:text="Sender"
-                android:layout_marginEnd="8dp"
-                style="@style/Widget.Material3.Button.TonalButton" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnReceiver"
-                android:layout_width="0dp"
-                android:layout_height="52dp"
-                android:layout_weight="1"
-                android:text="Receiver"
-                android:layout_marginStart="8dp"
-                style="@style/Widget.Material3.Button.TonalButton" />
-        </LinearLayout>
-
-        <!-- Connection Type Title -->
-        <TextView
-            android:id="@+id/tvConnectTitle"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Connect via"
-            android:textSize="15sp"
+            android:text="Do phones ek dusre ka sound sun saken"
+            android:textSize="14sp"
             android:textColor="#90A4AE"
-            android:layout_marginTop="28dp"
-            app:layout_constraintTop_toBottomOf="@id/modeButtons"
-            app:layout_constraintStart_toStartOf="parent" />
+            android:layout_marginTop="6dp"
+            android:layout_marginBottom="32dp" />
 
-        <!-- 3 Connection Buttons -->
+        <!-- Connection Buttons -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Kaise connect karna hai?"
+            android:textSize="15sp"
+            android:textColor="#B0BEC5"
+            android:layout_marginBottom="12dp" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSameWifi"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
             android:text="Same WiFi"
-            android:textSize="15sp"
-            android:layout_marginTop="12dp"
-            app:icon="@android:drawable/ic_menu_share"
-            app:iconGravity="textStart"
-            app:layout_constraintTop_toBottomOf="@id/tvConnectTitle"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:textSize="16sp"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#1E88E5"
+            android:layout_marginBottom="12dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHotspot"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:text="Hotspot + WiFi"
-            android:textSize="15sp"
-            android:layout_marginTop="10dp"
-            app:icon="@android:drawable/ic_menu_mylocation"
-            app:iconGravity="textStart"
-            app:layout_constraintTop_toBottomOf="@id/btnSameWifi"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:text="Hotspot"
+            android:textSize="16sp"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#00897B"
+            android:layout_marginBottom="12dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBluetooth"
-            android:layout_width="0dp"
-            android:layout_height="56dp"
-            android:text="Bluetooth"
-            android:textSize="15sp"
-            android:layout_marginTop="10dp"
-            app:icon="@android:drawable/stat_sys_data_bluetooth"
-            app:iconGravity="textStart"
-            app:layout_constraintTop_toBottomOf="@id/btnHotspot"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            style="@style/Widget.Material3.Button.OutlinedButton" />
-
-        <!-- Status -->
-        <TextView
-            android:id="@+id/tvStatus"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Idle"
-            android:textSize="17sp"
-            android:textColor="#81C784"
-            android:layout_marginTop="28dp"
-            app:layout_constraintTop_toBottomOf="@id/btnBluetooth"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-
-        <TextView
-            android:id="@+id/tvLatency"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Latency: -- ms"
-            android:textSize="26sp"
-            android:textStyle="bold"
-            android:textColor="#4FC3F7"
-            android:layout_marginTop="10dp"
-            app:layout_constraintTop_toBottomOf="@id/tvStatus"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-
-        <TextView
-            android:id="@+id/tvConnectionType"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Selected: None"
-            android:textSize="14sp"
-            android:textColor="#FFB74D"
-            android:layout_marginTop="8dp"
-            app:layout_constraintTop_toBottomOf="@id/tvLatency"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-
-        <!-- Start / Stop -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnStartStop"
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="60dp"
-            android:text="@string/start_streaming"
-            android:textSize="17sp"
-            android:layout_marginTop="28dp"
-            app:layout_constraintTop_toBottomOf="@id/tvConnectionType"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
+            android:text="Bluetooth"
+            android:textSize="16sp"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#5E35B1"
+            android:layout_marginBottom="28dp" />
 
-        <TextView
-            android:id="@+id/tvInfo"
-            android:layout_width="0dp"
+        <!-- Status Card -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="1. Sender / Receiver choose karo\n2. Connection type select karo (WiFi / Hotspot / Bluetooth)\n3. Start dabao\n\nSender → system audio capture karega\nReceiver → speaker banega"
-            android:textSize="13sp"
-            android:textColor="#90A4AE"
-            android:gravity="center"
-            android:layout_marginTop="24dp"
-            android:layout_marginBottom="16dp"
-            app:layout_constraintTop_toBottomOf="@id/btnStartStop"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent" />
+            android:orientation="vertical"
+            android:background="#1A1A1A"
+            android:padding="20dp"
+            android:layout_marginBottom="24dp">
 
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            <TextView
+                android:id="@+id/tvStatus"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Abhi connected nahi"
+                android:textSize="16sp"
+                android:textColor="#81C784"
+                android:gravity="center" />
+
+            <TextView
+                android:id="@+id/tvConnectionType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text=""
+                android:textSize="13sp"
+                android:textColor="#FFB74D"
+                android:gravity="center"
+                android:layout_marginTop="6dp" />
+
+            <TextView
+                android:id="@+id/tvLatency"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Latency: -- ms"
+                android:textSize="22sp"
+                android:textStyle="bold"
+                android:textColor="#4FC3F7"
+                android:gravity="center"
+                android:layout_marginTop="10dp" />
+        </LinearLayout>
+
+        <!-- Main Action -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnConnect"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:text="Connect karo"
+            android:textSize="18sp"
+            android:textColor="#FFFFFF"
+            app:backgroundTint="#43A047"
+            android:layout_marginBottom="12dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDisconnect"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:text="Disconnect"
+            android:textSize="15sp"
+            android:visibility="gone"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_marginBottom="24dp" />
+
+        <!-- Simple help -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Kaise use karein:\n\n1. Dono phones pe app kholo\n2. Same connection type choose karo (WiFi / Hotspot / Bluetooth)\n3. Dono pe Connect dabao\n4. Ek phone pe gana / YouTube chalao\n5. Dusre phone ke speaker pe sound aayega"
+            android:textSize="13sp"
+            android:textColor="#78909C"
+            android:lineSpacingExtra="4dp"
+            android:gravity="start" />
+
+    </LinearLayout>
 </ScrollView>
