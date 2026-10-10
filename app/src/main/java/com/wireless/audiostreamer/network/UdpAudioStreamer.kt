@@ -5,9 +5,10 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicInteger
 
 class UdpAudioStreamer(
-    private val targetIp: String,
+    @Volatile var targetIp: String,
     private val port: Int = 50000
 ) {
     companion object {
@@ -15,22 +16,24 @@ class UdpAudioStreamer(
     }
 
     private var socket: DatagramSocket? = null
-    private var sequence = 0
+    private val sequence = AtomicInteger(0)
 
     fun start() {
         try {
             socket = DatagramSocket()
             socket?.broadcast = true
-            Log.i(TAG, "Streamer started -> $targetIp:$port")
+            Log.i(TAG, "Streamer -> $targetIp:$port")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
         }
     }
 
     fun send(payload: ByteArray) {
+        val ip = targetIp
+        if (ip.isBlank() || ip == "0.0.0.0") return
         try {
             val packetData = ByteBuffer.allocate(12 + payload.size)
-                .putInt(sequence++)
+                .putInt(sequence.getAndIncrement())
                 .putLong(System.nanoTime())
                 .put(payload)
                 .array()
@@ -38,20 +41,17 @@ class UdpAudioStreamer(
             val packet = DatagramPacket(
                 packetData,
                 packetData.size,
-                InetAddress.getByName(targetIp),
+                InetAddress.getByName(ip),
                 port
             )
             socket?.send(packet)
         } catch (e: Exception) {
-            Log.e(TAG, "send failed", e)
+            Log.e(TAG, "send failed: ${e.message}")
         }
     }
 
     fun stop() {
-        try {
-            socket?.close()
-        } catch (_: Exception) {}
+        try { socket?.close() } catch (_: Exception) {}
         socket = null
-        Log.i(TAG, "Streamer stopped")
     }
 }

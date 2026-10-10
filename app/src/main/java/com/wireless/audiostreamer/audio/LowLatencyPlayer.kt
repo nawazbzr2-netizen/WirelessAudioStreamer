@@ -5,22 +5,31 @@ import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
 import android.util.Log
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.concurrent.thread
 
 class LowLatencyPlayer {
     companion object {
         private const val TAG = "LowLatencyPlayer"
-        const val SAMPLE_RATE = 48000
+        const val SAMPLE_RATE = 44100
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_STEREO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        // ~200ms target buffer for clean playback
+        private const val TARGET_BUFFER_MS = 200
     }
 
     private var audioTrack: AudioTrack? = null
+    private val queue = LinkedBlockingQueue<ByteArray>(64)
+    private val running = AtomicBoolean(false)
+    private var playThread: Thread? = null
 
     fun start() {
-        if (audioTrack != null) return
+        if (running.get()) return
         try {
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            val bufferSize = (minBuf * 2).coerceAtLeast(4096)
+            val targetBytes = SAMPLE_RATE * 2 * 2 * TARGET_BUFFER_MS / 1000
+            val bufferSize = maxOf(minBuf * 4, targetBytes)
 
             val builder = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -45,21 +54,40 @@ class LowLatencyPlayer {
 
             audioTrack = builder.build()
             audioTrack?.play()
-            Log.i(TAG, "Player started")
+            running.set(true)
+
+            playThread = thread(name = "WasPlayer", isDaemon = true) {
+                while (running.get()) {
+                    try {
+                        val data = queue.take()
+                        audioTrack?.write(data, 0, data.size)
+                    } catch (_: InterruptedException) {
+                        break
+                    } catch (e: Exception) {
+                        Log.e(TAG, "write error", e)
+                    }
+                }
+            }
+            Log.i(TAG, "Player started buf=$bufferSize")
         } catch (e: Exception) {
             Log.e(TAG, "Player start failed", e)
         }
     }
 
     fun write(pcm: ByteArray) {
-        try {
-            audioTrack?.write(pcm, 0, pcm.size)
-        } catch (e: Exception) {
-            Log.e(TAG, "write failed", e)
+        if (!running.get()) return
+        // Drop oldest if queue too full (avoid multi-second delay)
+        if (queue.size > 40) {
+            queue.poll()
         }
+        queue.offer(pcm)
     }
 
     fun stop() {
+        running.set(false)
+        playThread?.interrupt()
+        playThread = null
+        queue.clear()
         try {
             audioTrack?.pause()
             audioTrack?.flush()
