@@ -6,7 +6,6 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
 import android.bluetooth.BluetoothAdapter
-import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.media.AudioManager
 import android.media.projection.MediaProjection
@@ -95,13 +94,11 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Ready — Sender/Receiver choose karo"))
+                    startForeground(NOTIFICATION_ID, buildNotification("Ready — role choose karo"))
                     initConnection(resultCode, data)
                 }
             }
-            ACTION_SET_ROLE -> {
-                applyRole(intent.getStringExtra(EXTRA_ROLE) ?: ROLE_IDLE)
-            }
+            ACTION_SET_ROLE -> applyRole(intent.getStringExtra(EXTRA_ROLE) ?: ROLE_IDLE)
             ACTION_STOP -> {
                 stopEverything()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -114,40 +111,35 @@ class StreamingService : Service() {
     private fun initConnection(resultCode: Int, data: Intent) {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
-
         player = LowLatencyPlayer().also { it.start() }
 
         when (connectionType) {
             "WIFI" -> setupWifi()
             "BT" -> setupBluetooth()
         }
-
-        Log.i(TAG, "Init done peer=$peerIp type=$connectionType")
     }
 
     private fun setupWifi() {
-        // Receive + learn peer IP from incoming packets (bidirectional)
-        udpReceiver = UdpAudioReceiver { fromIp, _, _, payload ->
+        udpReceiver = UdpAudioReceiver { fromIp, seq, _, payload ->
             if (peerIp == null || peerIp != fromIp) {
                 peerIp = fromIp
                 ensureStreamer(fromIp)
-                Log.i(TAG, "Peer learned from packet: $fromIp")
                 updateNotification("Linked: $fromIp")
             }
+            // Always feed jitter buffer when receiving role
             if (role == ROLE_RECEIVER || role == ROLE_IDLE) {
-                player?.write(payload)
+                player?.enqueue(seq, payload)
             }
         }
         udpReceiver?.start(serviceScope)
 
         peerIp?.let { ensureStreamer(it) }
 
-        // Discovery also fills peer
         discovery = DiscoveryHelper { ip ->
             if (peerIp == null) {
                 peerIp = ip
                 ensureStreamer(ip)
-                updateNotification("Found peer: $ip")
+                updateNotification("Found: $ip")
             }
         }
         discovery?.start(serviceScope)
@@ -165,35 +157,33 @@ class StreamingService : Service() {
     private fun setupBluetooth() {
         btHelper = BluetoothAudioHelper { pcm ->
             if (role == ROLE_RECEIVER || role == ROLE_IDLE) {
-                player?.write(pcm)
+                // BT has no seq — synthetic increasing seq
+                player?.enqueue((System.nanoTime() % Int.MAX_VALUE).toInt(), pcm)
             }
         }
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
         btHelper?.startServer(serviceScope)
         if (btAddress != null) {
             try {
-                val device = adapter.getRemoteDevice(btAddress)
-                btHelper?.connectToDevice(device, serviceScope)
+                btHelper?.connectToDevice(adapter.getRemoteDevice(btAddress), serviceScope)
             } catch (e: Exception) {
-                Log.e(TAG, "BT error", e)
+                Log.e(TAG, "BT", e)
             }
         }
     }
 
     private fun applyRole(newRole: String) {
         role = newRole
-        Log.i(TAG, "Role set to $role peer=$peerIp")
-
         when (role) {
             ROLE_SENDER -> {
                 startSenderCapture()
                 muteLocalSpeaker(true)
-                updateNotification("SENDER — sound dusre phone pe")
+                updateNotification("SENDER — clean stream on")
             }
             ROLE_RECEIVER -> {
                 stopSenderCapture()
                 muteLocalSpeaker(false)
-                updateNotification("RECEIVER — yahan suno")
+                updateNotification("RECEIVER — jitter buffer ~200ms")
             }
             else -> {
                 stopSenderCapture()
@@ -203,33 +193,24 @@ class StreamingService : Service() {
     }
 
     private fun startSenderCapture() {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
-            Log.e(TAG, "Need Android 10+")
-            return
-        }
-        val proj = mediaProjection
-        if (proj == null) {
-            Log.e(TAG, "No MediaProjection")
-            return
-        }
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        val proj = mediaProjection ?: return
         stopSenderCapture()
-        capturer = SystemAudioCapturer(proj) { pcm ->
+        capturer = SystemAudioCapturer(proj) { seq, pcm ->
             if (role != ROLE_SENDER) return@SystemAudioCapturer
             when (connectionType) {
                 "WIFI" -> {
-                    val ip = peerIp
-                    if (ip != null) {
-                        ensureStreamer(ip)
-                        udpStreamer?.send(pcm)
-                    } else {
-                        Log.w(TAG, "No peer IP yet — cannot send")
+                    peerIp?.let {
+                        ensureStreamer(it)
+                        // Packet already has seq in UdpAudioStreamer — pass pcm; streamer adds its own seq
+                        // Better: send with capturer seq for jitter reorder
+                        udpStreamer?.sendWithSeq(seq, pcm)
                     }
                 }
                 "BT" -> btHelper?.send(pcm)
             }
         }
         capturer?.start(serviceScope)
-        Log.i(TAG, "Sender capture started")
     }
 
     private fun stopSenderCapture() {
@@ -247,9 +228,7 @@ class StreamingService : Service() {
                 am.setStreamVolume(AudioManager.STREAM_MUSIC, previousMusicVolume, 0)
                 previousMusicVolume = -1
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "mute error", e)
-        }
+        } catch (_: Exception) {}
     }
 
     private fun acquireWakeLock() {
@@ -280,8 +259,9 @@ class StreamingService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val ch = NotificationChannel(CHANNEL_ID, "Audio Streaming", NotificationManager.IMPORTANCE_LOW)
-            getSystemService(NotificationManager::class.java).createNotificationChannel(ch)
+            getSystemService(NotificationManager::class.java).createNotificationChannel(
+                NotificationChannel(CHANNEL_ID, "Audio Streaming", NotificationManager.IMPORTANCE_LOW)
+            )
         }
     }
 
@@ -300,12 +280,10 @@ class StreamingService : Service() {
     }
 
     private fun updateNotification(text: String) {
-        getSystemService(NotificationManager::class.java)
-            .notify(NOTIFICATION_ID, buildNotification(text))
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {}
-
     override fun onDestroy() {
         stopEverything()
         serviceScope.cancel()

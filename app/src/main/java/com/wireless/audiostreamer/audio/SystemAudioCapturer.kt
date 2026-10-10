@@ -21,30 +21,31 @@ import kotlinx.coroutines.launch
 @RequiresApi(Build.VERSION_CODES.Q)
 class SystemAudioCapturer(
     private val mediaProjection: MediaProjection,
-    private val onPcmData: (ByteArray) -> Unit
+    private val onPcmFrame: (sequence: Int, pcm: ByteArray) -> Unit
 ) {
     companion object {
         private const val TAG = "SystemAudioCapturer"
         const val SAMPLE_RATE = 44100
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_STEREO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        private const val FRAME_MS = 20
     }
 
     private var audioRecord: AudioRecord? = null
     private var virtualDisplay: VirtualDisplay? = null
     private var handlerThread: HandlerThread? = null
     @Volatile private var isCapturing = false
+    private var seq = 0
 
     fun start(scope: CoroutineScope) {
         if (isCapturing) return
         try {
-            // MediaProjection ko zinda rakhne ke liye chhota VirtualDisplay zaroori hai kai phones pe
             handlerThread = HandlerThread("WasProjection").also { it.start() }
             val handler = Handler(handlerThread!!.looper)
 
             mediaProjection.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() {
-                    Log.w(TAG, "MediaProjection stopped by system")
+                    Log.w(TAG, "MediaProjection stopped")
                     stop()
                 }
             }, handler)
@@ -64,10 +65,9 @@ class SystemAudioCapturer(
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .build()
 
-            // ~200ms buffer for stable clean audio
-            val frameBytes = SAMPLE_RATE * 2 * 2 / 5 // ~200ms stereo 16bit
+            val frameBytes = SAMPLE_RATE * 2 * 2 * FRAME_MS / 1000 // 20ms stereo
             val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            val bufferSize = maxOf(minBuf * 4, frameBytes)
+            val bufferSize = maxOf(minBuf * 4, frameBytes * 8)
 
             audioRecord = AudioRecord.Builder()
                 .setAudioFormat(
@@ -82,23 +82,30 @@ class SystemAudioCapturer(
                 .build()
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord NOT initialized")
+                Log.e(TAG, "AudioRecord init failed")
                 return
             }
 
             audioRecord?.startRecording()
             isCapturing = true
-            Log.i(TAG, "Capture STARTED buf=$bufferSize")
+            seq = 0
+            Log.i(TAG, "Capture started frame=${FRAME_MS}ms")
 
             scope.launch(Dispatchers.IO) {
                 val buffer = ByteArray(frameBytes)
                 while (isActive && isCapturing) {
-                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: -1
-                    if (read > 0) {
-                        onPcmData(buffer.copyOf(read))
-                    } else if (read < 0) {
-                        Log.e(TAG, "AudioRecord read error: $read")
-                        break
+                    var filled = 0
+                    while (filled < frameBytes && isCapturing) {
+                        val read = audioRecord?.read(buffer, filled, frameBytes - filled) ?: -1
+                        if (read < 0) {
+                            Log.e(TAG, "read error $read")
+                            return@launch
+                        }
+                        filled += read
+                    }
+                    if (filled == frameBytes) {
+                        val s = seq++
+                        onPcmFrame(s, buffer.copyOf())
                     }
                 }
             }
@@ -110,18 +117,11 @@ class SystemAudioCapturer(
 
     fun stop() {
         isCapturing = false
-        try {
-            audioRecord?.stop()
-            audioRecord?.release()
-        } catch (_: Exception) {}
+        try { audioRecord?.stop(); audioRecord?.release() } catch (_: Exception) {}
         audioRecord = null
-        try {
-            virtualDisplay?.release()
-        } catch (_: Exception) {}
+        try { virtualDisplay?.release() } catch (_: Exception) {}
         virtualDisplay = null
-        try {
-            handlerThread?.quitSafely()
-        } catch (_: Exception) {}
+        try { handlerThread?.quitSafely() } catch (_: Exception) {}
         handlerThread = null
         Log.i(TAG, "Capture stopped")
     }

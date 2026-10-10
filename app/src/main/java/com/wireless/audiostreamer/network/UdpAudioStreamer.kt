@@ -16,7 +16,7 @@ class UdpAudioStreamer(
     }
 
     private var socket: DatagramSocket? = null
-    private val sequence = AtomicInteger(0)
+    private val fallbackSeq = AtomicInteger(0)
 
     fun start() {
         try {
@@ -29,24 +29,27 @@ class UdpAudioStreamer(
     }
 
     fun send(payload: ByteArray) {
+        sendWithSeq(fallbackSeq.getAndIncrement(), payload)
+    }
+
+    fun sendWithSeq(sequence: Int, payload: ByteArray) {
         val ip = targetIp
         if (ip.isBlank() || ip == "0.0.0.0") return
         try {
             val packetData = ByteBuffer.allocate(12 + payload.size)
-                .putInt(sequence.getAndIncrement())
+                .putInt(sequence)
                 .putLong(System.nanoTime())
                 .put(payload)
                 .array()
 
-            val packet = DatagramPacket(
-                packetData,
-                packetData.size,
-                InetAddress.getByName(ip),
-                port
+            socket?.send(
+                DatagramPacket(
+                    packetData, packetData.size,
+                    InetAddress.getByName(ip), port
+                )
             )
-            socket?.send(packet)
         } catch (e: Exception) {
-            Log.e(TAG, "send failed: ${e.message}")
+            Log.e(TAG, "send: ${e.message}")
         }
     }
 
