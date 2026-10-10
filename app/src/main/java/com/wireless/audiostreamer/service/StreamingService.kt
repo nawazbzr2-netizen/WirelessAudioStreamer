@@ -5,12 +5,21 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.bluetooth.BluetoothAdapter
+import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.wireless.audiostreamer.audio.LowLatencyPlayer
+import com.wireless.audiostreamer.audio.SystemAudioCapturer
+import com.wireless.audiostreamer.network.BluetoothAudioHelper
+import com.wireless.audiostreamer.network.DiscoveryHelper
+import com.wireless.audiostreamer.network.UdpAudioReceiver
+import com.wireless.audiostreamer.network.UdpAudioStreamer
 import com.wireless.audiostreamer.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -29,11 +38,22 @@ class StreamingService : Service() {
 
         private const val CHANNEL_ID = "streaming_channel"
         private const val NOTIFICATION_ID = 1001
+        private const val TAG = "StreamingService"
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     private var mediaProjection: MediaProjection? = null
     private var connectionType: String = "NONE"
+
+    private var capturer: SystemAudioCapturer? = null
+    private var player: LowLatencyPlayer? = null
+    private var udpStreamer: UdpAudioStreamer? = null
+    private var udpReceiver: UdpAudioReceiver? = null
+    private var discovery: DiscoveryHelper? = null
+    private var btHelper: BluetoothAudioHelper? = null
+
+    private var peerIp: String? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -55,8 +75,8 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Connected ($connectionType)"))
-                    startStreaming(resultCode, data)
+                    startForeground(NOTIFICATION_ID, buildNotification("Connecting ($connectionType)..."))
+                    startAll(resultCode, data)
                 }
             }
             ACTION_STOP -> {
@@ -68,18 +88,113 @@ class StreamingService : Service() {
         return START_STICKY
     }
 
-    private fun startStreaming(resultCode: Int, data: Intent) {
+    private fun startAll(resultCode: Int, data: Intent) {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
 
-        // TODO: Real audio capture + UDP / Bluetooth streaming
-        // Abhi skeleton hai — actual sound transfer ke liye
-        // SystemAudioCapturer + UdpAudioStreamer + LowLatencyPlayer wire karna hai
+        player = LowLatencyPlayer().also { it.start() }
+
+        when (connectionType) {
+            "SAME_WIFI", "HOTSPOT" -> startWifiPath()
+            "BLUETOOTH" -> startBluetoothPath()
+            else -> Log.w(TAG, "Unknown connection type: $connectionType")
+        }
+
+        // Capture system audio and send to peer
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && mediaProjection != null) {
+            capturer = SystemAudioCapturer(mediaProjection!!) { pcm ->
+                // Send outgoing audio
+                when (connectionType) {
+                    "SAME_WIFI", "HOTSPOT" -> {
+                        peerIp?.let { ip ->
+                            if (udpStreamer == null) {
+                                udpStreamer = UdpAudioStreamer(ip).also { it.start() }
+                            }
+                            udpStreamer?.send(pcm)
+                        }
+                    }
+                    "BLUETOOTH" -> {
+                        btHelper?.send(pcm)
+                    }
+                }
+            }
+            capturer?.start(serviceScope)
+        }
+
+        updateNotification("Streaming ($connectionType)")
+    }
+
+    private fun startWifiPath() {
+        // Receive audio from peer
+        udpReceiver = UdpAudioReceiver { _, _, payload ->
+            player?.write(payload)
+        }
+        udpReceiver?.start(serviceScope)
+
+        // Discover peer on same network / hotspot
+        discovery = DiscoveryHelper { ip ->
+            if (peerIp == null) {
+                peerIp = ip
+                Log.i(TAG, "Peer found: $ip")
+                udpStreamer = UdpAudioStreamer(ip).also { it.start() }
+                updateNotification("Connected to $ip")
+            }
+        }
+        discovery?.start(serviceScope)
+    }
+
+    @Suppress("MissingPermission")
+    private fun startBluetoothPath() {
+        btHelper = BluetoothAudioHelper { pcm ->
+            player?.write(pcm)
+        }
+
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null) {
+            Log.e(TAG, "No Bluetooth adapter")
+            return
+        }
+
+        // Start as server (listen)
+        btHelper?.startServer(serviceScope)
+
+        // Also try connect to already paired devices
+        try {
+            val bonded: Set<BluetoothDevice>? = adapter.bondedDevices
+            bonded?.forEach { device ->
+                Log.i(TAG, "Trying bonded device: ${device.name}")
+                // Try connect in background; first successful wins
+                btHelper?.connectToDevice(device, serviceScope)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Bluetooth bonded devices error", e)
+        }
     }
 
     private fun stopEverything() {
+        capturer?.stop()
+        capturer = null
+
+        player?.stop()
+        player = null
+
+        udpStreamer?.stop()
+        udpStreamer = null
+
+        udpReceiver?.stop()
+        udpReceiver = null
+
+        discovery?.stop()
+        discovery = null
+
+        btHelper?.stop()
+        btHelper = null
+
         mediaProjection?.stop()
         mediaProjection = null
+
+        peerIp = null
+        Log.i(TAG, "All stopped")
     }
 
     private fun createNotificationChannel() {
@@ -106,6 +221,11 @@ class StreamingService : Service() {
             .setContentIntent(pi)
             .setOngoing(true)
             .build()
+    }
+
+    private fun updateNotification(text: String) {
+        val nm = getSystemService(NotificationManager::class.java)
+        nm.notify(NOTIFICATION_ID, buildNotification(text))
     }
 
     override fun onDestroy() {
