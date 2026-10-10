@@ -35,32 +35,22 @@ class MainActivity : AppCompatActivity() {
     private var discovery: DiscoveryHelper? = null
     private val peers = ConcurrentHashMap<String, String>()
 
-    private var pendingPeerIp: String? = null
-    private var pendingBtAddress: String? = null
     private var connectionMode = "WIFI"
     private var isStreaming = false
-    private var autoProjectionRequested = false
+
+    // Cached screen-cast grant — dobara permission na maange
+    private var savedResultCode: Int = 0
+    private var savedResultData: Intent? = null
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         if (result.resultCode == RESULT_OK && result.data != null) {
-            val intent = Intent(this, StreamingService::class.java).apply {
-                action = StreamingService.ACTION_START
-                putExtra(StreamingService.EXTRA_RESULT_CODE, result.resultCode)
-                putExtra(StreamingService.EXTRA_RESULT_DATA, result.data)
-                putExtra(StreamingService.EXTRA_CONNECTION_TYPE, connectionMode)
-                putExtra(StreamingService.EXTRA_PEER_IP, pendingPeerIp)
-                putExtra(StreamingService.EXTRA_BT_ADDRESS, pendingBtAddress)
-                // Default BOTH send+receive
-                putExtra(StreamingService.EXTRA_ROLE, StreamingService.ROLE_BOTH)
-            }
-            ContextCompat.startForegroundService(this, intent)
-            showConnectedUI()
-            isStreaming = true
+            savedResultCode = result.resultCode
+            savedResultData = result.data
+            startServiceWithGrant(null, null)
         } else {
-            Toast.makeText(this, "Screen cast allow karo — warna sound nahi jayega", Toast.LENGTH_LONG).show()
-            autoProjectionRequested = false
+            Toast.makeText(this, "Screen cast Allow karo", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -69,8 +59,7 @@ class MainActivity : AppCompatActivity() {
     ) { perms ->
         if (perms.values.all { it }) {
             startWifiReady()
-            // App open → auto screen-cast dialog
-            requestAutoProjection()
+            ensureScreenCast()
         } else {
             Toast.makeText(this, "Permissions allow karo", Toast.LENGTH_SHORT).show()
         }
@@ -80,23 +69,76 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
         binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()}"
-
         setupTabs()
         setupClicks()
         askPermissions()
     }
 
-    /** App open hone par screen-cast permission maango */
-    private fun requestAutoProjection() {
-        if (autoProjectionRequested || isStreaming) return
-        autoProjectionRequested = true
-        connectionMode = "WIFI"
-        pendingPeerIp = null
-        pendingBtAddress = null
+    /** Sirf tab projection maango jab pehle se grant na ho */
+    private fun ensureScreenCast() {
+        if (savedResultData != null && isStreaming) {
+            return // already running
+        }
+        if (savedResultData != null) {
+            // grant hai, service start
+            startServiceWithGrant(null, null)
+            return
+        }
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
+    }
+
+    /** Peer connect — projection dobara NAHI maango */
+    private fun connectToPeer(peerIp: String?, btAddress: String?, mode: String) {
+        connectionMode = mode
+        if (savedResultData == null) {
+            // pehli dafa
+            val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
+            // after grant will start without peer; user taps again OR we store pending
+            pendingPeerIp = peerIp
+            pendingBtAddress = btAddress
+            return
+        }
+        if (isStreaming) {
+            // Service already chal rahi — sirf peer update
+            val i = Intent(this, StreamingService::class.java).apply {
+                action = StreamingService.ACTION_SET_PEER
+                putExtra(StreamingService.EXTRA_PEER_IP, peerIp)
+                putExtra(StreamingService.EXTRA_BT_ADDRESS, btAddress)
+                putExtra(StreamingService.EXTRA_CONNECTION_TYPE, mode)
+            }
+            startService(i)
+            showConnectedUI()
+            Toast.makeText(this, "Peer set — sound chalna chahiye", Toast.LENGTH_SHORT).show()
+        } else {
+            startServiceWithGrant(peerIp, btAddress)
+        }
+    }
+
+    private var pendingPeerIp: String? = null
+    private var pendingBtAddress: String? = null
+
+    private fun startServiceWithGrant(peerIp: String?, btAddress: String?) {
+        val data = savedResultData ?: return
+        val ip = peerIp ?: pendingPeerIp
+        val bt = btAddress ?: pendingBtAddress
+        pendingPeerIp = null
+        pendingBtAddress = null
+
+        val intent = Intent(this, StreamingService::class.java).apply {
+            action = StreamingService.ACTION_START
+            putExtra(StreamingService.EXTRA_RESULT_CODE, savedResultCode)
+            putExtra(StreamingService.EXTRA_RESULT_DATA, data)
+            putExtra(StreamingService.EXTRA_CONNECTION_TYPE, connectionMode)
+            putExtra(StreamingService.EXTRA_PEER_IP, ip)
+            putExtra(StreamingService.EXTRA_BT_ADDRESS, bt)
+            putExtra(StreamingService.EXTRA_ROLE, StreamingService.ROLE_BOTH)
+        }
+        ContextCompat.startForegroundService(this, intent)
+        isStreaming = true
+        showConnectedUI()
     }
 
     private fun setupTabs() {
@@ -130,17 +172,19 @@ class MainActivity : AppCompatActivity() {
 
         binding.btnStartListen.setOnClickListener {
             connectionMode = "WIFI"
-            pendingPeerIp = null
-            requestProjectionAndStart()
+            if (savedResultData != null) {
+                if (!isStreaming) startServiceWithGrant(null, null)
+                else Toast.makeText(this, "Already running", Toast.LENGTH_SHORT).show()
+            } else {
+                ensureScreenCast()
+            }
         }
 
         binding.btnRefreshBt.setOnClickListener { refreshBtList() }
-
         binding.btnBtSettings.setOnClickListener {
             startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
         }
 
-        // Optional role override — default is BOTH
         binding.btnRoleSender.setOnClickListener {
             setRole(StreamingService.ROLE_SENDER)
         }
@@ -148,9 +192,7 @@ class MainActivity : AppCompatActivity() {
             setRole(StreamingService.ROLE_RECEIVER)
         }
 
-        binding.btnDisconnect.setOnClickListener {
-            stopStreamingFully()
-        }
+        binding.btnDisconnect.setOnClickListener { stopStreamingFully() }
     }
 
     private fun askPermissions() {
@@ -174,7 +216,7 @@ class MainActivity : AppCompatActivity() {
             permissionLauncher.launch(missing.toTypedArray())
         } else {
             startWifiReady()
-            requestAutoProjection()
+            ensureScreenCast()
         }
     }
 
@@ -185,6 +227,14 @@ class MainActivity : AppCompatActivity() {
                 if (!peers.containsKey(ip)) {
                     peers[ip] = "Phone"
                     rebuildPeerList()
+                }
+                // Auto-link peer jab service chal rahi ho — bina permission
+                if (isStreaming && savedResultData != null) {
+                    startService(Intent(this@MainActivity, StreamingService::class.java).apply {
+                        action = StreamingService.ACTION_SET_PEER
+                        putExtra(StreamingService.EXTRA_PEER_IP, ip)
+                        putExtra(StreamingService.EXTRA_CONNECTION_TYPE, "WIFI")
+                    })
                 }
             }
         }
@@ -207,10 +257,7 @@ class MainActivity : AppCompatActivity() {
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
             row.setOnClickListener {
-                pendingPeerIp = ip
-                pendingBtAddress = null
-                connectionMode = "WIFI"
-                requestProjectionAndStart()
+                connectToPeer(ip, null, "WIFI")
             }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -229,7 +276,7 @@ class MainActivity : AppCompatActivity() {
         val bonded = try { adapter.bondedDevices } catch (_: Exception) { emptySet() }
         if (bonded.isNullOrEmpty()) {
             val tv = TextView(this)
-            tv.text = "Koi paired phone nahi. Bluetooth settings se pair karo."
+            tv.text = "Koi paired phone nahi."
             tv.setTextColor(0xFF999999.toInt())
             tv.setPadding(16, 24, 16, 24)
             binding.listBtDevices.addView(tv)
@@ -244,10 +291,7 @@ class MainActivity : AppCompatActivity() {
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
             row.setOnClickListener {
-                pendingBtAddress = device.address
-                pendingPeerIp = null
-                connectionMode = "BT"
-                requestProjectionAndStart()
+                connectToPeer(null, device.address, "BT")
             }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
@@ -258,62 +302,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun requestProjectionAndStart() {
-        val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-        mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
-    }
-
     private fun setRole(role: String) {
         startService(Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_SET_ROLE
             putExtra(StreamingService.EXTRA_ROLE, role)
         })
-        when (role) {
-            StreamingService.ROLE_SENDER -> {
-                binding.tvStatus.text = "Sender only — local mute"
-                binding.tvRoleHint.text = "Sirf bhej raha hai"
-                binding.btnRoleSender.alpha = 1f
-                binding.btnRoleReceiver.alpha = 0.5f
-            }
-            StreamingService.ROLE_RECEIVER -> {
-                binding.tvStatus.text = "Receiver only"
-                binding.tvRoleHint.text = "Sirf sun raha hai"
-                binding.btnRoleSender.alpha = 0.5f
-                binding.btnRoleReceiver.alpha = 1f
-            }
-        }
+        binding.tvStatus.text = "Role: $role"
     }
 
     private fun showConnectedUI() {
         binding.roleBar.visibility = View.VISIBLE
-        binding.tvConnectedCount.text = "Connected"
-        binding.tvStatus.text = "Default: dono phones send + receive"
-        binding.tvRoleHint.text =
-            "Auto: dono Sender+Receiver.\nChaaho to Sender ya Receiver dabao."
-        binding.btnRoleSender.alpha = 1f
-        binding.btnRoleReceiver.alpha = 1f
-        Toast.makeText(this, "Connected — dono send & receive", Toast.LENGTH_SHORT).show()
+        binding.tvConnectedCount.text = "Running"
+        binding.tvStatus.text = "Send + Receive active. Peer auto/tap se link."
+        binding.tvRoleHint.text = "Default BOTH. Optional: Sender / Receiver"
     }
 
     private fun stopStreamingFully() {
         stopService(Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_STOP
         })
-        hideConnectedUI()
         isStreaming = false
-        autoProjectionRequested = false
-    }
-
-    private fun hideConnectedUI() {
+        // Screen-cast token clear — next open pe phir Allow
+        savedResultData = null
+        savedResultCode = 0
         binding.roleBar.visibility = View.GONE
         binding.tvConnectedCount.text = "Connected (0)"
-        binding.tvStatus.text = "Nobody yet. Neeche se connect karo."
-        pendingPeerIp = null
-        pendingBtAddress = null
+        binding.tvStatus.text = "Disconnected"
     }
 
     override fun onDestroy() {
-        // Activity destroy / app close → stream + screen cast band
         if (isFinishing) {
             stopStreamingFully()
         }
@@ -323,11 +340,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onBackPressed() {
-        // Back = minimize nahi; user disconnect se band kare
-        if (isStreaming) {
-            moveTaskToBack(true)
-        } else {
-            super.onBackPressed()
-        }
+        if (isStreaming) moveTaskToBack(true) else super.onBackPressed()
     }
 }
