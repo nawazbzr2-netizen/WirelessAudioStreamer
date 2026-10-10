@@ -11,7 +11,6 @@ import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
-import com.wireless.audiostreamer.R
 import com.wireless.audiostreamer.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,15 +26,15 @@ class StreamingService : Service() {
 
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+        const val EXTRA_CONNECTION_TYPE = "connection_type"
 
         private const val CHANNEL_ID = "streaming_channel"
         private const val NOTIFICATION_ID = 1001
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-
     private var mediaProjection: MediaProjection? = null
-    // TODO: SystemAudioCapturer, UdpStreamer, NearbyDiscovery, etc.
+    private var connectionType: String = "NONE"
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -47,6 +46,7 @@ class StreamingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START_SENDER -> {
+                connectionType = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: "NONE"
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     intent.getParcelableExtra(EXTRA_RESULT_DATA, Intent::class.java)
@@ -56,13 +56,14 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Sender mode active"))
+                    startForeground(NOTIFICATION_ID, buildNotification("Sender ($connectionType)"))
                     startSender(resultCode, data)
                 }
             }
 
             ACTION_START_RECEIVER -> {
-                startForeground(NOTIFICATION_ID, buildNotification("Receiver mode active"))
+                connectionType = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: "NONE"
+                startForeground(NOTIFICATION_ID, buildNotification("Receiver ($connectionType)"))
                 startReceiver()
             }
 
@@ -79,24 +80,30 @@ class StreamingService : Service() {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
 
-        // TODO:
-        // 1. Initialize SystemAudioCapturer with mediaProjection
-        // 2. Start Opus encoding
-        // 3. Start UDP sender
-        // 4. Start Nearby Connections advertising/discovery
+        when (connectionType) {
+            "SAME_WIFI", "HOTSPOT" -> {
+                // TODO: Start system audio capture + UDP over WiFi/Hotspot
+            }
+            "BLUETOOTH" -> {
+                // TODO: Bluetooth path (limited)
+            }
+        }
     }
 
     private fun startReceiver() {
-        // TODO:
-        // 1. Start Nearby Connections discovery
-        // 2. Start UDP receiver
-        // 3. Start Opus decoder + low-latency AudioTrack
+        when (connectionType) {
+            "SAME_WIFI", "HOTSPOT" -> {
+                // TODO: Start UDP receiver + low latency player
+            }
+            "BLUETOOTH" -> {
+                // TODO: Bluetooth receiver path
+            }
+        }
     }
 
     private fun stopEverything() {
         mediaProjection?.stop()
         mediaProjection = null
-        // TODO: stop capturer, streamer, player, discovery
     }
 
     private fun createNotificationChannel() {

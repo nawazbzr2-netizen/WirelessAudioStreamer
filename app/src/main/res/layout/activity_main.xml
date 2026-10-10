@@ -1,112 +1,189 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:padding="24dp"
+    android:fillViewport="true"
     android:background="#121212">
 
-    <TextView
-        android:id="@+id/tvTitle"
-        android:layout_width="wrap_content"
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="Wireless Audio Streamer"
-        android:textSize="22sp"
-        android:textStyle="bold"
-        android:textColor="#FFFFFF"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        android:padding="24dp">
 
-    <TextView
-        android:id="@+id/tvMode"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Mode: Sender (System Audio)"
-        android:textSize="16sp"
-        android:textColor="#B0BEC5"
-        android:layout_marginTop="12dp"
-        app:layout_constraintTop_toBottomOf="@id/tvTitle"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <TextView
+            android:id="@+id/tvTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Wireless Audio Streamer"
+            android:textSize="22sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <LinearLayout
-        android:id="@+id/modeButtons"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="32dp"
-        app:layout_constraintTop_toBottomOf="@id/tvMode"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        <TextView
+            android:id="@+id/tvMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Mode: Sender (System Audio)"
+            android:textSize="16sp"
+            android:textColor="#B0BEC5"
+            android:layout_marginTop="12dp"
+            app:layout_constraintTop_toBottomOf="@id/tvTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
+        <!-- Mode Buttons -->
+        <LinearLayout
+            android:id="@+id/modeButtons"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="24dp"
+            app:layout_constraintTop_toBottomOf="@id/tvMode"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnSender"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Sender"
+                android:layout_marginEnd="8dp"
+                style="@style/Widget.Material3.Button.TonalButton" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnReceiver"
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:layout_weight="1"
+                android:text="Receiver"
+                android:layout_marginStart="8dp"
+                style="@style/Widget.Material3.Button.TonalButton" />
+        </LinearLayout>
+
+        <!-- Connection Type Title -->
+        <TextView
+            android:id="@+id/tvConnectTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Connect via"
+            android:textSize="15sp"
+            android:textColor="#90A4AE"
+            android:layout_marginTop="28dp"
+            app:layout_constraintTop_toBottomOf="@id/modeButtons"
+            app:layout_constraintStart_toStartOf="parent" />
+
+        <!-- 3 Connection Buttons -->
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSender"
+            android:id="@+id/btnSameWifi"
             android:layout_width="0dp"
             android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="Sender"
-            android:layout_marginEnd="8dp"
-            style="@style/Widget.Material3.Button.TonalButton" />
+            android:text="Same WiFi"
+            android:textSize="15sp"
+            android:layout_marginTop="12dp"
+            app:icon="@android:drawable/ic_menu_share"
+            app:iconGravity="textStart"
+            app:layout_constraintTop_toBottomOf="@id/tvConnectTitle"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnReceiver"
+            android:id="@+id/btnHotspot"
             android:layout_width="0dp"
             android:layout_height="56dp"
-            android:layout_weight="1"
-            android:text="Receiver"
-            android:layout_marginStart="8dp"
-            style="@style/Widget.Material3.Button.TonalButton" />
-    </LinearLayout>
+            android:text="Hotspot + WiFi"
+            android:textSize="15sp"
+            android:layout_marginTop="10dp"
+            app:icon="@android:drawable/ic_menu_mylocation"
+            app:iconGravity="textStart"
+            app:layout_constraintTop_toBottomOf="@id/btnSameWifi"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
 
-    <TextView
-        android:id="@+id/tvStatus"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Idle"
-        android:textSize="18sp"
-        android:textColor="#81C784"
-        android:layout_marginTop="40dp"
-        app:layout_constraintTop_toBottomOf="@id/modeButtons"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnBluetooth"
+            android:layout_width="0dp"
+            android:layout_height="56dp"
+            android:text="Bluetooth"
+            android:textSize="15sp"
+            android:layout_marginTop="10dp"
+            app:icon="@android:drawable/stat_sys_data_bluetooth"
+            app:iconGravity="textStart"
+            app:layout_constraintTop_toBottomOf="@id/btnHotspot"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
 
-    <TextView
-        android:id="@+id/tvLatency"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Latency: -- ms"
-        android:textSize="28sp"
-        android:textStyle="bold"
-        android:textColor="#4FC3F7"
-        android:layout_marginTop="16dp"
-        app:layout_constraintTop_toBottomOf="@id/tvStatus"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <!-- Status -->
+        <TextView
+            android:id="@+id/tvStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Idle"
+            android:textSize="17sp"
+            android:textColor="#81C784"
+            android:layout_marginTop="28dp"
+            app:layout_constraintTop_toBottomOf="@id/btnBluetooth"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btnStartStop"
-        android:layout_width="0dp"
-        android:layout_height="64dp"
-        android:text="@string/start_streaming"
-        android:textSize="18sp"
-        android:layout_marginTop="48dp"
-        app:layout_constraintTop_toBottomOf="@id/tvLatency"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <TextView
+            android:id="@+id/tvLatency"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Latency: -- ms"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:textColor="#4FC3F7"
+            android:layout_marginTop="10dp"
+            app:layout_constraintTop_toBottomOf="@id/tvStatus"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-    <TextView
-        android:id="@+id/tvInfo"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:text="Sender captures all system audio (YouTube, Spotify, etc.)\nReceiver plays it on its speaker.\nBoth phones must be on same WiFi or Hotspot."
-        android:textSize="13sp"
-        android:textColor="#90A4AE"
-        android:gravity="center"
-        android:layout_marginTop="32dp"
-        app:layout_constraintTop_toBottomOf="@id/btnStartStop"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent" />
+        <TextView
+            android:id="@+id/tvConnectionType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Selected: None"
+            android:textSize="14sp"
+            android:textColor="#FFB74D"
+            android:layout_marginTop="8dp"
+            app:layout_constraintTop_toBottomOf="@id/tvLatency"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <!-- Start / Stop -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStartStop"
+            android:layout_width="0dp"
+            android:layout_height="60dp"
+            android:text="@string/start_streaming"
+            android:textSize="17sp"
+            android:layout_marginTop="28dp"
+            app:layout_constraintTop_toBottomOf="@id/tvConnectionType"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+
+        <TextView
+            android:id="@+id/tvInfo"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:text="1. Sender / Receiver choose karo\n2. Connection type select karo (WiFi / Hotspot / Bluetooth)\n3. Start dabao\n\nSender → system audio capture karega\nReceiver → speaker banega"
+            android:textSize="13sp"
+            android:textColor="#90A4AE"
+            android:gravity="center"
+            android:layout_marginTop="24dp"
+            android:layout_marginBottom="16dp"
+            app:layout_constraintTop_toBottomOf="@id/btnStartStop"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent" />
+
+    </androidx.constraintlayout.widget.ConstraintLayout>
+</ScrollView>
