@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Wireless Audio Streamer</string>
+    <string name="sender_mode">Sender Mode</string>
+    <string name="receiver_mode">Receiver Mode</string>
+    <string name="start_streaming">Start Streaming</string>
+    <string name="stop_streaming">Stop Streaming</string>
+    <string name="searching_devices">Searching nearby devices…</string>
+    <string name="connected">Connected</string>
+    <string name="disconnected">Disconnected</string>
+    <string name="latency_label">Latency: %1$d ms</string>
+    <string name="grant_permission">Grant Screen Capture Permission</string>
+    <string name="permission_required">System audio capture requires MediaProjection permission</string>
+</resources>
