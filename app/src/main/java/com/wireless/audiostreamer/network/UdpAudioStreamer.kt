@@ -17,12 +17,13 @@ class UdpAudioStreamer(
 
     private var socket: DatagramSocket? = null
     private val fallbackSeq = AtomicInteger(0)
+    @Volatile var packetsSent = 0
 
     fun start() {
         try {
             socket = DatagramSocket()
             socket?.broadcast = true
-            Log.i(TAG, "Streamer -> $targetIp:$port")
+            Log.i(TAG, "TX -> $targetIp:$port")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
         }
@@ -41,15 +42,12 @@ class UdpAudioStreamer(
                 .putLong(System.nanoTime())
                 .put(payload)
                 .array()
-
             socket?.send(
-                DatagramPacket(
-                    packetData, packetData.size,
-                    InetAddress.getByName(ip), port
-                )
+                DatagramPacket(packetData, packetData.size, InetAddress.getByName(ip), port)
             )
+            packetsSent++
         } catch (e: Exception) {
-            Log.e(TAG, "send: ${e.message}")
+            if (packetsSent % 50 == 0) Log.e(TAG, "send fail: ${e.message}")
         }
     }
 

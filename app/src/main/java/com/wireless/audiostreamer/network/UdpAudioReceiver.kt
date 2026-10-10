@@ -3,6 +3,7 @@ package com.wireless.audiostreamer.network
 import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
+import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,28 +25,28 @@ class UdpAudioReceiver(
         if (running) return
         running = true
         try {
-            socket = DatagramSocket(port)
-            socket?.broadcast = true
+            socket = DatagramSocket(null)
             socket?.reuseAddress = true
-            Log.i(TAG, "Listening on $port")
+            socket?.broadcast = true
+            socket?.bind(InetSocketAddress(port))
+            Log.i(TAG, "Listening 0.0.0.0:$port")
 
             scope.launch(Dispatchers.IO) {
-                val buffer = ByteArray(16384)
+                val buffer = ByteArray(32768)
                 while (isActive && running) {
                     try {
                         val packet = DatagramPacket(buffer, buffer.size)
                         socket?.receive(packet)
-                        if (packet.length >= 12) {
-                            val fromIp = packet.address.hostAddress ?: continue
-                            val bb = ByteBuffer.wrap(packet.data, 0, packet.length)
-                            val seq = bb.int
-                            val ts = bb.long
-                            val payload = ByteArray(packet.length - 12)
-                            bb.get(payload)
-                            onPacket(fromIp, seq, ts, payload)
-                        }
+                        if (packet.length < 12) continue
+                        val fromIp = packet.address?.hostAddress ?: continue
+                        val bb = ByteBuffer.wrap(packet.data, 0, packet.length)
+                        val seq = bb.int
+                        val ts = bb.long
+                        val payload = ByteArray(packet.length - 12)
+                        bb.get(payload)
+                        onPacket(fromIp, seq, ts, payload)
                     } catch (e: Exception) {
-                        if (running) Log.e(TAG, "receive: ${e.message}")
+                        if (running) Log.e(TAG, "rx: ${e.message}")
                     }
                 }
             }
