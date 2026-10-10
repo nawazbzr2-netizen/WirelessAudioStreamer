@@ -41,9 +41,11 @@ class StreamingService : Service() {
         const val EXTRA_BT_ADDRESS = "bt_address"
         const val EXTRA_ROLE = "role"
 
-        const val ROLE_IDLE = "IDLE"
+        /** BOTH = send + receive (default). User can force SENDER or RECEIVER only. */
+        const val ROLE_BOTH = "BOTH"
         const val ROLE_SENDER = "SENDER"
         const val ROLE_RECEIVER = "RECEIVER"
+        @Deprecated("Use ROLE_BOTH") const val ROLE_IDLE = "BOTH"
 
         private const val CHANNEL_ID = "streaming_channel"
         private const val NOTIFICATION_ID = 1001
@@ -56,7 +58,7 @@ class StreamingService : Service() {
     private var connectionType: String = "WIFI"
     @Volatile private var peerIp: String? = null
     private var btAddress: String? = null
-    @Volatile private var role: String = ROLE_IDLE
+    @Volatile private var role: String = ROLE_BOTH
 
     private var capturer: SystemAudioCapturer? = null
     private var player: LowLatencyPlayer? = null
@@ -83,7 +85,7 @@ class StreamingService : Service() {
                 connectionType = intent.getStringExtra(EXTRA_CONNECTION_TYPE) ?: "WIFI"
                 peerIp = intent.getStringExtra(EXTRA_PEER_IP)
                 btAddress = intent.getStringExtra(EXTRA_BT_ADDRESS)
-                role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_IDLE
+                role = intent.getStringExtra(EXTRA_ROLE) ?: ROLE_BOTH
 
                 val resultCode = intent.getIntExtra(EXTRA_RESULT_CODE, 0)
                 val data = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -94,11 +96,11 @@ class StreamingService : Service() {
                 }
 
                 if (data != null) {
-                    startForeground(NOTIFICATION_ID, buildNotification("Ready — role choose karo"))
+                    startForeground(NOTIFICATION_ID, buildNotification("Connected — both send & receive"))
                     initConnection(resultCode, data)
                 }
             }
-            ACTION_SET_ROLE -> applyRole(intent.getStringExtra(EXTRA_ROLE) ?: ROLE_IDLE)
+            ACTION_SET_ROLE -> applyRole(intent.getStringExtra(EXTRA_ROLE) ?: ROLE_BOTH)
             ACTION_STOP -> {
                 stopEverything()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -111,12 +113,18 @@ class StreamingService : Service() {
     private fun initConnection(resultCode: Int, data: Intent) {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjection = mpm.getMediaProjection(resultCode, data)
-        player = LowLatencyPlayer().also { it.start() }
+
+        // Latency: WiFi 70ms jitter, Bluetooth higher (typical BT audio latency)
+        val jitterMs = if (connectionType == "BT") 180 else 70
+        player = LowLatencyPlayer(targetJitterMs = jitterMs).also { it.start() }
 
         when (connectionType) {
             "WIFI" -> setupWifi()
             "BT" -> setupBluetooth()
         }
+
+        // Default BOTH: start capture immediately
+        applyRole(role)
     }
 
     private fun setupWifi() {
@@ -126,8 +134,7 @@ class StreamingService : Service() {
                 ensureStreamer(fromIp)
                 updateNotification("Linked: $fromIp")
             }
-            // Always feed jitter buffer when receiving role
-            if (role == ROLE_RECEIVER || role == ROLE_IDLE) {
+            if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                 player?.enqueue(seq, payload)
             }
         }
@@ -156,8 +163,7 @@ class StreamingService : Service() {
     @Suppress("MissingPermission")
     private fun setupBluetooth() {
         btHelper = BluetoothAudioHelper { pcm ->
-            if (role == ROLE_RECEIVER || role == ROLE_IDLE) {
-                // BT has no seq — synthetic increasing seq
+            if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                 player?.enqueue((System.nanoTime() % Int.MAX_VALUE).toInt(), pcm)
             }
         }
@@ -173,21 +179,28 @@ class StreamingService : Service() {
     }
 
     private fun applyRole(newRole: String) {
-        role = newRole
+        role = when (newRole) {
+            ROLE_SENDER, ROLE_RECEIVER, ROLE_BOTH -> newRole
+            else -> ROLE_BOTH
+        }
+        Log.i(TAG, "Role=$role")
+
         when (role) {
+            ROLE_BOTH -> {
+                startSenderCapture()
+                // Local mute nahi — dono directions; user volume control
+                muteLocalSpeaker(false)
+                updateNotification("BOTH — send + receive (WiFi ~70ms)")
+            }
             ROLE_SENDER -> {
                 startSenderCapture()
                 muteLocalSpeaker(true)
-                updateNotification("SENDER — clean stream on")
+                updateNotification("SENDER only — local mute")
             }
             ROLE_RECEIVER -> {
                 stopSenderCapture()
                 muteLocalSpeaker(false)
-                updateNotification("RECEIVER — jitter buffer ~200ms")
-            }
-            else -> {
-                stopSenderCapture()
-                muteLocalSpeaker(false)
+                updateNotification("RECEIVER only")
             }
         }
     }
@@ -195,15 +208,13 @@ class StreamingService : Service() {
     private fun startSenderCapture() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
         val proj = mediaProjection ?: return
-        stopSenderCapture()
+        if (capturer != null) return // already running
         capturer = SystemAudioCapturer(proj) { seq, pcm ->
-            if (role != ROLE_SENDER) return@SystemAudioCapturer
+            if (role != ROLE_SENDER && role != ROLE_BOTH) return@SystemAudioCapturer
             when (connectionType) {
                 "WIFI" -> {
                     peerIp?.let {
                         ensureStreamer(it)
-                        // Packet already has seq in UdpAudioStreamer — pass pcm; streamer adds its own seq
-                        // Better: send with capturer seq for jitter reorder
                         udpStreamer?.sendWithSeq(seq, pcm)
                     }
                 }
@@ -253,7 +264,7 @@ class StreamingService : Service() {
         mediaProjection = null
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
         wakeLock = null
-        role = ROLE_IDLE
+        role = ROLE_BOTH
         peerIp = null
     }
 
@@ -283,7 +294,14 @@ class StreamingService : Service() {
         getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(text))
     }
 
-    override fun onTaskRemoved(rootIntent: Intent?) {}
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        // App task swipe / close → screen cast + stream band
+        Log.i(TAG, "Task removed — stopping")
+        stopEverything()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
     override fun onDestroy() {
         stopEverything()
         serviceScope.cancel()

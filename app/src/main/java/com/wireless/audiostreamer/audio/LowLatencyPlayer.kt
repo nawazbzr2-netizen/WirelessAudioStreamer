@@ -8,20 +8,18 @@ import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/**
- * Smooth player: consumes JitterBuffer at steady rate (~200ms prebuffer).
- */
-class LowLatencyPlayer {
+class LowLatencyPlayer(
+    private val targetJitterMs: Int = 70 // WiFi default 50-100ms range
+) {
     companion object {
         private const val TAG = "LowLatencyPlayer"
         const val SAMPLE_RATE = 44100
         const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_STEREO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val TARGET_MS = 200
     }
 
     private var audioTrack: AudioTrack? = null
-    private val jitter = JitterBuffer(targetMs = TARGET_MS, sampleRate = SAMPLE_RATE)
+    private var jitter: JitterBuffer = JitterBuffer(targetMs = targetJitterMs)
     private val running = AtomicBoolean(false)
     private var playThread: Thread? = null
 
@@ -29,8 +27,7 @@ class LowLatencyPlayer {
         if (running.get()) return
         try {
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            // Hardware buffer ~100-150ms
-            val hwBuf = maxOf(minBuf * 3, SAMPLE_RATE * 2 * 2 / 8)
+            val hwBuf = maxOf(minBuf * 2, SAMPLE_RATE * 2 * 2 / 20) // ~50ms hw
 
             val builder = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -49,24 +46,19 @@ class LowLatencyPlayer {
                 .setBufferSizeInBytes(hwBuf)
                 .setTransferMode(AudioTrack.MODE_STREAM)
 
-            // Prefer POWER_SAVING / none over LOW_LATENCY for fewer glitches on music
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
+                builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             }
 
             audioTrack = builder.build()
             audioTrack?.play()
             running.set(true)
 
-            // Steady pull from jitter buffer
-            playThread = thread(name = "WasSmoothPlayer", isDaemon = true) {
-                // 20ms frames
-                val frameMs = 20
-                val frameBytes = SAMPLE_RATE * 2 * 2 * frameMs / 1000
+            playThread = thread(name = "WasPlayer", isDaemon = true) {
                 while (running.get()) {
                     try {
                         if (!jitter.isPrimed()) {
-                            Thread.sleep(10)
+                            Thread.sleep(5)
                             continue
                         }
                         val data = jitter.poll()
@@ -78,31 +70,23 @@ class LowLatencyPlayer {
                                 offset += w
                             }
                         } else {
-                            // underrun: brief wait, optional comfort noise could go here
-                            Thread.sleep(5)
+                            Thread.sleep(3)
                         }
                     } catch (_: InterruptedException) {
                         break
                     } catch (e: Exception) {
-                        Log.e(TAG, "play loop", e)
+                        Log.e(TAG, "play", e)
                     }
                 }
             }
-            Log.i(TAG, "Smooth player started target=${TARGET_MS}ms")
+            Log.i(TAG, "Player started jitter=${targetJitterMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
         }
     }
 
-    /** Feed network packet into jitter buffer */
     fun enqueue(sequence: Int, pcm: ByteArray) {
-        if (!running.get()) return
-        jitter.add(sequence, pcm)
-    }
-
-    @Deprecated("Use enqueue(seq, pcm)", ReplaceWith("enqueue(0, pcm)"))
-    fun write(pcm: ByteArray) {
-        enqueue(0, pcm)
+        if (running.get()) jitter.add(sequence, pcm)
     }
 
     fun stop() {
@@ -117,6 +101,5 @@ class LowLatencyPlayer {
             audioTrack?.release()
         } catch (_: Exception) {}
         audioTrack = null
-        Log.i(TAG, "Player stopped")
     }
 }

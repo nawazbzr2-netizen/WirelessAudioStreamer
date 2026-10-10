@@ -44,7 +44,7 @@
             android:id="@+id/tvStatus"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Nobody yet. Neeche se connect karo."
+            android:text="App khulte hi screen-cast maanga jayega"
             android:textSize="13sp"
             android:textColor="#888888"
             android:layout_marginTop="2dp" />
@@ -91,7 +91,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Same WiFi ya Hotspot pe phones yahan dikhenge. Tap karke connect karo."
+                    android:text="WiFi latency ~50–100ms. Dono phones auto send+receive."
                     android:textSize="13sp"
                     android:textColor="#666666"
                     android:layout_marginBottom="12dp" />
@@ -141,7 +141,7 @@
                     android:id="@+id/tvNoPeers"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Abhi koi nahi mila. Dono phones pe Start/Ready dabao."
+                    android:text="Abhi koi nahi mila. Dono phones pe app kholo + Allow."
                     android:textSize="13sp"
                     android:textColor="#999999"
                     android:padding="16dp"
@@ -164,7 +164,7 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="1) Android settings se phones pair karo. 2) Dono pe app kholo. 3) Neeche paired phone pe tap karo."
+                    android:text="Bluetooth default latency (~150–200ms). Pair karke tap karo."
                     android:textSize="13sp"
                     android:textColor="#666666"
                     android:layout_marginBottom="12dp" />
@@ -217,7 +217,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Is phone ka role"
+            android:text="Role (optional — default dono)"
             android:textSize="13sp"
             android:textColor="#666666"
             android:layout_marginBottom="8dp" />
@@ -251,7 +251,7 @@
             android:id="@+id/tvRoleHint"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Sender = is phone ki awaaz dusre pe\nReceiver = dusre phone ki awaaz yahan"
+            android:text="Default: dono phones Sender + Receiver.\nButton dabao to sirf woh role."
             android:textSize="12sp"
             android:textColor="#888888"
             android:layout_marginTop="8dp" />
@@ -260,7 +260,7 @@
             android:id="@+id/btnDisconnect"
             android:layout_width="match_parent"
             android:layout_height="44dp"
-            android:text="Disconnect"
+            android:text="Disconnect (screen-cast band)"
             android:textSize="14sp"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_marginTop="10dp" />
