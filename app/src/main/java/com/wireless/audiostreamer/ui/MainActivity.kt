@@ -18,15 +18,12 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.tabs.TabLayout
-import com.wireless.audiostreamer.R
 import com.wireless.audiostreamer.databinding.ActivityMainBinding
 import com.wireless.audiostreamer.network.DiscoveryHelper
 import com.wireless.audiostreamer.service.StreamingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import java.util.concurrent.ConcurrentHashMap
@@ -37,11 +34,11 @@ class MainActivity : AppCompatActivity() {
     private val uiScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
 
     private var discovery: DiscoveryHelper? = null
-    private val peers = ConcurrentHashMap<String, String>() // ip -> name
+    private val peers = ConcurrentHashMap<String, String>()
 
     private var pendingPeerIp: String? = null
     private var pendingBtAddress: String? = null
-    private var connectionMode = "WIFI" // WIFI or BT
+    private var connectionMode = "WIFI"
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -81,7 +78,7 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper(null).getLocalIp()}"
+        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()}"
 
         setupTabs()
         setupClicks()
@@ -174,13 +171,13 @@ class MainActivity : AppCompatActivity() {
         discovery = DiscoveryHelper { ip ->
             runOnUiThread {
                 if (!peers.containsKey(ip)) {
-                    peers[ip] = "Phone $ip"
+                    peers[ip] = "Phone"
                     rebuildPeerList()
                 }
             }
         }
         discovery?.start(uiScope)
-        binding.tvMyInfo.text = "${Build.MODEL} · ${discovery?.getLocalIp()}"
+        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()}"
     }
 
     private fun rebuildPeerList() {
@@ -191,9 +188,9 @@ class MainActivity : AppCompatActivity() {
         }
         binding.tvNoPeers.visibility = View.GONE
         val inflater = LayoutInflater.from(this)
-        peers.forEach { (ip, name) ->
+        peers.forEach { (ip, _) ->
             val row = inflater.inflate(android.R.layout.simple_list_item_2, binding.listPeers, false)
-            row.findViewById<TextView>(android.R.id.text1).text = name
+            row.findViewById<TextView>(android.R.id.text1).text = "Phone"
             row.findViewById<TextView>(android.R.id.text2).text = "IP: $ip  · Tap to connect"
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
@@ -255,11 +252,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setRole(role: String) {
-        val intent = Intent(this, StreamingService::class.java).apply {
+        startService(Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_SET_ROLE
             putExtra(StreamingService.EXTRA_ROLE, role)
-        }
-        startService(intent)
+        })
 
         if (role == StreamingService.ROLE_SENDER) {
             binding.tvStatus.text = "Sender: is phone ki awaaz dusre pe (yahan mute)"

@@ -11,18 +11,32 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/**
- * Simple UDP discovery on local network / hotspot.
- * Broadcasts "WAS_HELLO" and listens for peers.
- */
 class DiscoveryHelper(
-    private val onPeerFound: (ip: String) -> Unit
+    private val onPeerFound: ((ip: String) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "DiscoveryHelper"
         private const val DISCOVERY_PORT = 50001
         private const val HELLO = "WAS_HELLO"
         private const val REPLY = "WAS_REPLY"
+
+        fun localIp(): String {
+            try {
+                val interfaces = NetworkInterface.getNetworkInterfaces()
+                while (interfaces.hasMoreElements()) {
+                    val iface = interfaces.nextElement()
+                    if (!iface.isUp || iface.isLoopback) continue
+                    val addrs = iface.inetAddresses
+                    while (addrs.hasMoreElements()) {
+                        val addr = addrs.nextElement()
+                        if (!addr.isLoopbackAddress && addr.hostAddress?.contains(":") == false) {
+                            return addr.hostAddress ?: "0.0.0.0"
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+            return "0.0.0.0"
+        }
     }
 
     private var socket: DatagramSocket? = null
@@ -36,7 +50,6 @@ class DiscoveryHelper(
             socket?.broadcast = true
             socket?.reuseAddress = true
 
-            // Listen for peers
             scope.launch(Dispatchers.IO) {
                 val buf = ByteArray(128)
                 while (isActive && running) {
@@ -45,17 +58,14 @@ class DiscoveryHelper(
                         socket?.receive(packet)
                         val msg = String(packet.data, 0, packet.length)
                         val ip = packet.address.hostAddress ?: continue
-                        if (ip == getLocalIp()) continue
+                        if (ip == localIp()) continue
 
                         when {
                             msg.startsWith(HELLO) -> {
-                                // Reply so peer knows us
                                 sendRaw(REPLY.toByteArray(), ip)
-                                onPeerFound(ip)
+                                onPeerFound?.invoke(ip)
                             }
-                            msg.startsWith(REPLY) -> {
-                                onPeerFound(ip)
-                            }
+                            msg.startsWith(REPLY) -> onPeerFound?.invoke(ip)
                         }
                     } catch (e: Exception) {
                         if (running) Log.e(TAG, "listen error", e)
@@ -63,12 +73,9 @@ class DiscoveryHelper(
                 }
             }
 
-            // Periodically broadcast hello
             scope.launch(Dispatchers.IO) {
                 while (isActive && running) {
-                    try {
-                        broadcast(HELLO.toByteArray())
-                    } catch (_: Exception) {}
+                    try { broadcast(HELLO.toByteArray()) } catch (_: Exception) {}
                     delay(1500)
                 }
             }
@@ -104,21 +111,5 @@ class DiscoveryHelper(
         socket = null
     }
 
-    fun getLocalIp(): String {
-        try {
-            val interfaces = NetworkInterface.getNetworkInterfaces()
-            while (interfaces.hasMoreElements()) {
-                val iface = interfaces.nextElement()
-                if (!iface.isUp || iface.isLoopback) continue
-                val addrs = iface.inetAddresses
-                while (addrs.hasMoreElements()) {
-                    val addr = addrs.nextElement()
-                    if (!addr.isLoopbackAddress && addr.hostAddress?.contains(":") == false) {
-                        return addr.hostAddress ?: "0.0.0.0"
-                    }
-                }
-            }
-        } catch (_: Exception) {}
-        return "0.0.0.0"
-    }
+    fun getLocalIp(): String = localIp()
 }
