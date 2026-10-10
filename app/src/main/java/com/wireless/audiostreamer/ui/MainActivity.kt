@@ -21,7 +21,7 @@ enum class ConnectionType {
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
-    private var selectedConnection = ConnectionType.NONE
+    private var selectedConnection = ConnectionType.SAME_WIFI // default
     private var isConnected = false
 
     private val mediaProjectionLauncher = registerForActivityResult(
@@ -30,7 +30,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK && result.data != null) {
             startServiceWithProjection(result.resultCode, result.data!!)
         } else {
-            Toast.makeText(this, "Permission chahiye thi. Dobara try karo.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Permission allow karo taake sound share ho sake", Toast.LENGTH_LONG).show()
             setConnected(false)
         }
     }
@@ -39,7 +39,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         if (permissions.values.all { it }) {
-            startConnection()
+            requestProjection()
         } else {
             Toast.makeText(this, "Permissions allow karo", Toast.LENGTH_SHORT).show()
         }
@@ -50,6 +50,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
         setupClicks()
+
+        // Default select Same WiFi so user sirf Connect daba sake
+        selectType(ConnectionType.SAME_WIFI)
     }
 
     private fun setupClicks() {
@@ -58,10 +61,6 @@ class MainActivity : AppCompatActivity() {
         binding.btnBluetooth.setOnClickListener { selectType(ConnectionType.BLUETOOTH) }
 
         binding.btnConnect.setOnClickListener {
-            if (selectedConnection == ConnectionType.NONE) {
-                Toast.makeText(this, "Pehle upar se connection type choose karo", Toast.LENGTH_SHORT).show()
-                return@setOnClickListener
-            }
             checkPermissionsAndConnect()
         }
 
@@ -74,7 +73,6 @@ class MainActivity : AppCompatActivity() {
     private fun selectType(type: ConnectionType) {
         selectedConnection = type
 
-        // Reset colors
         binding.btnSameWifi.setBackgroundColor(0xFF1E88E5.toInt())
         binding.btnHotspot.setBackgroundColor(0xFF00897B.toInt())
         binding.btnBluetooth.setBackgroundColor(0xFF5E35B1.toInt())
@@ -82,18 +80,18 @@ class MainActivity : AppCompatActivity() {
         when (type) {
             ConnectionType.SAME_WIFI -> {
                 binding.btnSameWifi.setBackgroundColor(0xFF1565C0.toInt())
-                binding.tvConnectionType.text = "Same WiFi selected"
-                binding.tvStatus.text = "Dono phones same WiFi pe hon"
+                binding.tvConnectionType.text = "Same WiFi"
+                binding.tvStatus.text = "Dono phones same WiFi pe rakho, Connect dabao"
             }
             ConnectionType.HOTSPOT -> {
                 binding.btnHotspot.setBackgroundColor(0xFF00695C.toInt())
-                binding.tvConnectionType.text = "Hotspot selected"
+                binding.tvConnectionType.text = "Hotspot"
                 binding.tvStatus.text = "Ek phone Hotspot on kare, dusra usse jud jaye"
             }
             ConnectionType.BLUETOOTH -> {
                 binding.btnBluetooth.setBackgroundColor(0xFF4527A0.toInt())
-                binding.tvConnectionType.text = "Bluetooth selected"
-                binding.tvStatus.text = "Bluetooth on rakho (limited support)"
+                binding.tvConnectionType.text = "Bluetooth"
+                binding.tvStatus.text = "Bluetooth on + pair karo, phir Connect"
             }
             else -> {}
         }
@@ -121,13 +119,11 @@ class MainActivity : AppCompatActivity() {
         if (missing.isNotEmpty()) {
             permissionLauncher.launch(missing.toTypedArray())
         } else {
-            startConnection()
+            requestProjection()
         }
     }
 
-    private fun startConnection() {
-        // System audio ke liye MediaProjection chahiye
-        // Dono phones pe permission lenge taake dono sound bhej/suna saken
+    private fun requestProjection() {
         val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
     }
@@ -141,19 +137,19 @@ class MainActivity : AppCompatActivity() {
         }
         ContextCompat.startForegroundService(this, intent)
         setConnected(true)
+        Toast.makeText(this, "Searching peer... App minimize bhi kar sakte ho", Toast.LENGTH_LONG).show()
     }
 
     private fun stopService() {
-        val intent = Intent(this, StreamingService::class.java).apply {
+        startService(Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_STOP
-        }
-        startService(intent)
+        })
     }
 
     private fun setConnected(connected: Boolean) {
         isConnected = connected
         if (connected) {
-            binding.tvStatus.text = "Connected — sound share ho sakta hai"
+            binding.tvStatus.text = "Connected / Searching peer...\nScreen off ya minimize pe bhi chalega"
             binding.btnConnect.visibility = View.GONE
             binding.btnDisconnect.visibility = View.VISIBLE
             binding.btnSameWifi.isEnabled = false
@@ -161,14 +157,21 @@ class MainActivity : AppCompatActivity() {
             binding.btnBluetooth.isEnabled = false
         } else {
             binding.tvStatus.text = "Abhi connected nahi"
-            binding.tvConnectionType.text = ""
             binding.tvLatency.text = "Latency: -- ms"
             binding.btnConnect.visibility = View.VISIBLE
             binding.btnDisconnect.visibility = View.GONE
             binding.btnSameWifi.isEnabled = true
             binding.btnHotspot.isEnabled = true
             binding.btnBluetooth.isEnabled = true
-            selectedConnection = ConnectionType.NONE
+        }
+    }
+
+    // App minimize / back pe service band NAHO
+    override fun onBackPressed() {
+        if (isConnected) {
+            moveTaskToBack(true) // minimize, disconnect mat karo
+        } else {
+            super.onBackPressed()
         }
     }
 }

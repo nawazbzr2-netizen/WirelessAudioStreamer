@@ -25,66 +25,64 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Do phones ek dusre ka sound sun saken"
-            android:textSize="14sp"
+            android:text="Dono phones auto connect + background mein chalega"
+            android:textSize="13sp"
             android:textColor="#90A4AE"
             android:layout_marginTop="6dp"
-            android:layout_marginBottom="32dp" />
+            android:layout_marginBottom="28dp" />
 
-        <!-- Connection Buttons -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Kaise connect karna hai?"
-            android:textSize="15sp"
+            android:text="Connection type"
+            android:textSize="14sp"
             android:textColor="#B0BEC5"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="10dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSameWifi"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="56dp"
             android:text="Same WiFi"
             android:textSize="16sp"
             android:textColor="#FFFFFF"
             app:backgroundTint="#1E88E5"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="10dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHotspot"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="56dp"
             android:text="Hotspot"
             android:textSize="16sp"
             android:textColor="#FFFFFF"
             app:backgroundTint="#00897B"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="10dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBluetooth"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="56dp"
             android:text="Bluetooth"
             android:textSize="16sp"
             android:textColor="#FFFFFF"
             app:backgroundTint="#5E35B1"
-            android:layout_marginBottom="28dp" />
+            android:layout_marginBottom="24dp" />
 
-        <!-- Status Card -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:background="#1A1A1A"
-            android:padding="20dp"
-            android:layout_marginBottom="24dp">
+            android:padding="18dp"
+            android:layout_marginBottom="20dp">
 
             <TextView
                 android:id="@+id/tvStatus"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Abhi connected nahi"
-                android:textSize="16sp"
+                android:textSize="15sp"
                 android:textColor="#81C784"
                 android:gravity="center" />
 
@@ -92,7 +90,7 @@
                 android:id="@+id/tvConnectionType"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text=""
+                android:text="Same WiFi"
                 android:textSize="13sp"
                 android:textColor="#FFB74D"
                 android:gravity="center"
@@ -103,14 +101,13 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="Latency: -- ms"
-                android:textSize="22sp"
+                android:textSize="20sp"
                 android:textStyle="bold"
                 android:textColor="#4FC3F7"
                 android:gravity="center"
-                android:layout_marginTop="10dp" />
+                android:layout_marginTop="8dp" />
         </LinearLayout>
 
-        <!-- Main Action -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnConnect"
             android:layout_width="match_parent"
@@ -119,7 +116,7 @@
             android:textSize="18sp"
             android:textColor="#FFFFFF"
             app:backgroundTint="#43A047"
-            android:layout_marginBottom="12dp" />
+            android:layout_marginBottom="10dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDisconnect"
@@ -129,17 +126,15 @@
             android:textSize="15sp"
             android:visibility="gone"
             style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_marginBottom="24dp" />
+            android:layout_marginBottom="20dp" />
 
-        <!-- Simple help -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Kaise use karein:\n\n1. Dono phones pe app kholo\n2. Same connection type choose karo (WiFi / Hotspot / Bluetooth)\n3. Dono pe Connect dabao\n4. Ek phone pe gana / YouTube chalao\n5. Dusre phone ke speaker pe sound aayega"
+            android:text="Kaise use karein:\n\n1. Dono phones pe app install karo\n2. Same WiFi ya Hotspot pe rakho\n3. DONO phones pe Connect dabao (permission allow)\n4. Auto mil jayenge\n5. Screen off / minimize kar sakte ho — disconnect nahi hoga\n6. Ek pe gana chalao, dusre pe suno"
             android:textSize="13sp"
             android:textColor="#78909C"
-            android:lineSpacingExtra="4dp"
-            android:gravity="start" />
+            android:lineSpacingExtra="3dp" />
 
     </LinearLayout>
 </ScrollView>
