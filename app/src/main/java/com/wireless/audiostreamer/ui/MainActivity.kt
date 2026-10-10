@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.tabs.TabLayout
 import com.wireless.audiostreamer.databinding.ActivityMainBinding
 import com.wireless.audiostreamer.network.DiscoveryHelper
+import com.wireless.audiostreamer.network.LocalNetworkBinder
 import com.wireless.audiostreamer.service.StreamingService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,10 +38,10 @@ class MainActivity : AppCompatActivity() {
 
     private var connectionMode = "WIFI"
     private var isStreaming = false
-
-    // Cached screen-cast grant — dobara permission na maange
     private var savedResultCode: Int = 0
     private var savedResultData: Intent? = null
+    private var pendingPeerIp: String? = null
+    private var pendingBtAddress: String? = null
 
     private val mediaProjectionLauncher = registerForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -48,7 +49,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK && result.data != null) {
             savedResultCode = result.resultCode
             savedResultData = result.data
-            startServiceWithGrant(null, null)
+            startServiceWithGrant(pendingPeerIp, pendingBtAddress)
         } else {
             Toast.makeText(this, "Screen cast Allow karo", Toast.LENGTH_LONG).show()
         }
@@ -58,6 +59,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { perms ->
         if (perms.values.all { it }) {
+            LocalNetworkBinder.preferWifiNetwork(this)
             startWifiReady()
             ensureScreenCast()
         } else {
@@ -69,19 +71,16 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()}"
+        LocalNetworkBinder.preferWifiNetwork(this)
+        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()} (LAN only)"
         setupTabs()
         setupClicks()
         askPermissions()
     }
 
-    /** Sirf tab projection maango jab pehle se grant na ho */
     private fun ensureScreenCast() {
-        if (savedResultData != null && isStreaming) {
-            return // already running
-        }
+        if (savedResultData != null && isStreaming) return
         if (savedResultData != null) {
-            // grant hai, service start
             startServiceWithGrant(null, null)
             return
         }
@@ -89,36 +88,32 @@ class MainActivity : AppCompatActivity() {
         mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
     }
 
-    /** Peer connect — projection dobara NAHI maango */
     private fun connectToPeer(peerIp: String?, btAddress: String?, mode: String) {
         connectionMode = mode
+        if (peerIp != null && !LocalNetworkBinder.isPrivateIp(peerIp)) {
+            Toast.makeText(this, "Sirf local WiFi/Hotspot IP allowed", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (savedResultData == null) {
-            // pehli dafa
-            val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-            mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
-            // after grant will start without peer; user taps again OR we store pending
             pendingPeerIp = peerIp
             pendingBtAddress = btAddress
+            val mpm = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+            mediaProjectionLauncher.launch(mpm.createScreenCaptureIntent())
             return
         }
         if (isStreaming) {
-            // Service already chal rahi — sirf peer update
-            val i = Intent(this, StreamingService::class.java).apply {
+            startService(Intent(this, StreamingService::class.java).apply {
                 action = StreamingService.ACTION_SET_PEER
                 putExtra(StreamingService.EXTRA_PEER_IP, peerIp)
                 putExtra(StreamingService.EXTRA_BT_ADDRESS, btAddress)
                 putExtra(StreamingService.EXTRA_CONNECTION_TYPE, mode)
-            }
-            startService(i)
+            })
             showConnectedUI()
-            Toast.makeText(this, "Peer set — sound chalna chahiye", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Local peer set (no internet)", Toast.LENGTH_SHORT).show()
         } else {
             startServiceWithGrant(peerIp, btAddress)
         }
     }
-
-    private var pendingPeerIp: String? = null
-    private var pendingBtAddress: String? = null
 
     private fun startServiceWithGrant(peerIp: String?, btAddress: String?) {
         val data = savedResultData ?: return
@@ -126,6 +121,8 @@ class MainActivity : AppCompatActivity() {
         val bt = btAddress ?: pendingBtAddress
         pendingPeerIp = null
         pendingBtAddress = null
+
+        LocalNetworkBinder.preferWifiNetwork(this)
 
         val intent = Intent(this, StreamingService::class.java).apply {
             action = StreamingService.ACTION_START
@@ -166,32 +163,22 @@ class MainActivity : AppCompatActivity() {
     private fun setupClicks() {
         binding.btnScan.setOnClickListener {
             connectionMode = "WIFI"
+            LocalNetworkBinder.preferWifiNetwork(this)
             startWifiReady()
-            Toast.makeText(this, "Scanning...", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Scanning local LAN...", Toast.LENGTH_SHORT).show()
         }
-
         binding.btnStartListen.setOnClickListener {
             connectionMode = "WIFI"
             if (savedResultData != null) {
                 if (!isStreaming) startServiceWithGrant(null, null)
-                else Toast.makeText(this, "Already running", Toast.LENGTH_SHORT).show()
-            } else {
-                ensureScreenCast()
-            }
+            } else ensureScreenCast()
         }
-
         binding.btnRefreshBt.setOnClickListener { refreshBtList() }
         binding.btnBtSettings.setOnClickListener {
             startActivity(Intent(Settings.ACTION_BLUETOOTH_SETTINGS))
         }
-
-        binding.btnRoleSender.setOnClickListener {
-            setRole(StreamingService.ROLE_SENDER)
-        }
-        binding.btnRoleReceiver.setOnClickListener {
-            setRole(StreamingService.ROLE_RECEIVER)
-        }
-
+        binding.btnRoleSender.setOnClickListener { setRole(StreamingService.ROLE_SENDER) }
+        binding.btnRoleReceiver.setOnClickListener { setRole(StreamingService.ROLE_RECEIVER) }
         binding.btnDisconnect.setOnClickListener { stopStreamingFully() }
     }
 
@@ -212,9 +199,9 @@ class MainActivity : AppCompatActivity() {
         val missing = needed.filter {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
-        if (missing.isNotEmpty()) {
-            permissionLauncher.launch(missing.toTypedArray())
-        } else {
+        if (missing.isNotEmpty()) permissionLauncher.launch(missing.toTypedArray())
+        else {
+            LocalNetworkBinder.preferWifiNetwork(this)
             startWifiReady()
             ensureScreenCast()
         }
@@ -222,14 +209,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun startWifiReady() {
         discovery?.stop()
-        discovery = DiscoveryHelper { ip ->
+        discovery = DiscoveryHelper(this) { ip ->
+            if (!LocalNetworkBinder.isPrivateIp(ip)) return@DiscoveryHelper
             runOnUiThread {
                 if (!peers.containsKey(ip)) {
                     peers[ip] = "Phone"
                     rebuildPeerList()
                 }
-                // Auto-link peer jab service chal rahi ho — bina permission
-                if (isStreaming && savedResultData != null) {
+                if (isStreaming) {
                     startService(Intent(this@MainActivity, StreamingService::class.java).apply {
                         action = StreamingService.ACTION_SET_PEER
                         putExtra(StreamingService.EXTRA_PEER_IP, ip)
@@ -239,7 +226,7 @@ class MainActivity : AppCompatActivity() {
             }
         }
         discovery?.start(uiScope)
-        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()}"
+        binding.tvMyInfo.text = "${Build.MODEL} · ${DiscoveryHelper.localIp()} (LAN only)"
     }
 
     private fun rebuildPeerList() {
@@ -249,16 +236,14 @@ class MainActivity : AppCompatActivity() {
             return
         }
         binding.tvNoPeers.visibility = View.GONE
-        val inflater = LayoutInflater.from(this)
         peers.forEach { (ip, _) ->
-            val row = inflater.inflate(android.R.layout.simple_list_item_2, binding.listPeers, false)
-            row.findViewById<TextView>(android.R.id.text1).text = "Phone"
-            row.findViewById<TextView>(android.R.id.text2).text = "IP: $ip  · Tap to connect"
+            val row = LayoutInflater.from(this)
+                .inflate(android.R.layout.simple_list_item_2, binding.listPeers, false)
+            row.findViewById<TextView>(android.R.id.text1).text = "Phone (local)"
+            row.findViewById<TextView>(android.R.id.text2).text = "IP: $ip  · Tap"
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
-            row.setOnClickListener {
-                connectToPeer(ip, null, "WIFI")
-            }
+            row.setOnClickListener { connectToPeer(ip, null, "WIFI") }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -276,7 +261,7 @@ class MainActivity : AppCompatActivity() {
         val bonded = try { adapter.bondedDevices } catch (_: Exception) { emptySet() }
         if (bonded.isNullOrEmpty()) {
             val tv = TextView(this)
-            tv.text = "Koi paired phone nahi."
+            tv.text = "No paired phones"
             tv.setTextColor(0xFF999999.toInt())
             tv.setPadding(16, 24, 16, 24)
             binding.listBtDevices.addView(tv)
@@ -286,13 +271,10 @@ class MainActivity : AppCompatActivity() {
             val row = LayoutInflater.from(this)
                 .inflate(android.R.layout.simple_list_item_2, binding.listBtDevices, false)
             row.findViewById<TextView>(android.R.id.text1).text = device.name ?: "Unknown"
-            row.findViewById<TextView>(android.R.id.text2).text =
-                "${device.address}  · Tap to connect"
+            row.findViewById<TextView>(android.R.id.text2).text = "${device.address} · BT only"
             row.setPadding(24, 28, 24, 28)
             row.setBackgroundColor(0xFFEDE7F6.toInt())
-            row.setOnClickListener {
-                connectToPeer(null, device.address, "BT")
-            }
+            row.setOnClickListener { connectToPeer(null, device.address, "BT") }
             val lp = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
@@ -312,9 +294,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun showConnectedUI() {
         binding.roleBar.visibility = View.VISIBLE
-        binding.tvConnectedCount.text = "Running"
-        binding.tvStatus.text = "Send + Receive active. Peer auto/tap se link."
-        binding.tvRoleHint.text = "Default BOTH. Optional: Sender / Receiver"
+        binding.tvConnectedCount.text = "Running (local only)"
+        binding.tvStatus.text = "No internet used. WiFi/Hotspot/BT only."
+        binding.tvRoleHint.text = "Hotspot without internet bhi chalega"
     }
 
     private fun stopStreamingFully() {
@@ -322,18 +304,14 @@ class MainActivity : AppCompatActivity() {
             action = StreamingService.ACTION_STOP
         })
         isStreaming = false
-        // Screen-cast token clear — next open pe phir Allow
         savedResultData = null
         savedResultCode = 0
         binding.roleBar.visibility = View.GONE
-        binding.tvConnectedCount.text = "Connected (0)"
         binding.tvStatus.text = "Disconnected"
     }
 
     override fun onDestroy() {
-        if (isFinishing) {
-            stopStreamingFully()
-        }
+        if (isFinishing) stopStreamingFully()
         discovery?.stop()
         uiScope.cancel()
         super.onDestroy()

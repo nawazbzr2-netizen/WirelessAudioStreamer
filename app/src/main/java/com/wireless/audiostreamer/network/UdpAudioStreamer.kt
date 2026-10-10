@@ -1,5 +1,6 @@
 package com.wireless.audiostreamer.network
 
+import android.content.Context
 import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -8,6 +9,7 @@ import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicInteger
 
 class UdpAudioStreamer(
+    private val context: Context,
     @Volatile var targetIp: String,
     private val port: Int = 50000
 ) {
@@ -21,9 +23,15 @@ class UdpAudioStreamer(
 
     fun start() {
         try {
+            // ONLY private LAN IPs
+            if (!LocalNetworkBinder.isPrivateIp(targetIp)) {
+                Log.e(TAG, "Blocked non-private IP: $targetIp (internet not allowed)")
+                return
+            }
             socket = DatagramSocket()
+            LocalNetworkBinder.bindSocket(context, socket!!)
             socket?.broadcast = true
-            Log.i(TAG, "TX -> $targetIp:$port")
+            Log.i(TAG, "LOCAL TX -> $targetIp:$port")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
         }
@@ -35,7 +43,7 @@ class UdpAudioStreamer(
 
     fun sendWithSeq(sequence: Int, payload: ByteArray) {
         val ip = targetIp
-        if (ip.isBlank() || ip == "0.0.0.0") return
+        if (!LocalNetworkBinder.isPrivateIp(ip)) return
         try {
             val packetData = ByteBuffer.allocate(12 + payload.size)
                 .putInt(sequence)
@@ -47,7 +55,7 @@ class UdpAudioStreamer(
             )
             packetsSent++
         } catch (e: Exception) {
-            if (packetsSent % 50 == 0) Log.e(TAG, "send fail: ${e.message}")
+            if (packetsSent % 100 == 0) Log.e(TAG, "send: ${e.message}")
         }
     }
 

@@ -1,5 +1,6 @@
 package com.wireless.audiostreamer.network
 
+import android.content.Context
 import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
@@ -11,6 +12,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class UdpAudioReceiver(
+    private val context: Context,
     private val port: Int = 50000,
     private val onPacket: (fromIp: String, sequence: Int, timestamp: Long, payload: ByteArray) -> Unit
 ) {
@@ -29,7 +31,8 @@ class UdpAudioReceiver(
             socket?.reuseAddress = true
             socket?.broadcast = true
             socket?.bind(InetSocketAddress(port))
-            Log.i(TAG, "Listening 0.0.0.0:$port")
+            LocalNetworkBinder.bindSocket(context, socket!!)
+            Log.i(TAG, "LOCAL RX on :$port")
 
             scope.launch(Dispatchers.IO) {
                 val buffer = ByteArray(32768)
@@ -39,6 +42,8 @@ class UdpAudioReceiver(
                         socket?.receive(packet)
                         if (packet.length < 12) continue
                         val fromIp = packet.address?.hostAddress ?: continue
+                        // Ignore non-private (never internet peers)
+                        if (!LocalNetworkBinder.isPrivateIp(fromIp)) continue
                         val bb = ByteBuffer.wrap(packet.data, 0, packet.length)
                         val seq = bb.int
                         val ts = bb.long

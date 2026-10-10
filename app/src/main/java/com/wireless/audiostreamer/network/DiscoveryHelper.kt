@@ -1,9 +1,11 @@
 package com.wireless.audiostreamer.network
 
+import android.content.Context
 import android.util.Log
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
+import java.net.InetSocketAddress
 import java.net.NetworkInterface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +13,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/** Local LAN discovery only — no internet. */
 class DiscoveryHelper(
+    private val context: Context? = null,
     private val onPeerFound: ((ip: String) -> Unit)? = null
 ) {
     companion object {
@@ -26,11 +30,33 @@ class DiscoveryHelper(
                 while (interfaces.hasMoreElements()) {
                     val iface = interfaces.nextElement()
                     if (!iface.isUp || iface.isLoopback) continue
+                    val name = iface.name.lowercase()
+                    // Prefer wlan / softap / ap interfaces (WiFi / hotspot)
                     val addrs = iface.inetAddresses
                     while (addrs.hasMoreElements()) {
                         val addr = addrs.nextElement()
-                        if (!addr.isLoopbackAddress && addr.hostAddress?.contains(":") == false) {
-                            return addr.hostAddress ?: "0.0.0.0"
+                        val ip = addr.hostAddress ?: continue
+                        if (addr.isLoopbackAddress || ip.contains(":")) continue
+                        if (LocalNetworkBinder.isPrivateIp(ip)) {
+                            if (name.contains("wlan") || name.contains("ap") ||
+                                name.contains("soft") || name.contains("wifi")
+                            ) {
+                                return ip
+                            }
+                        }
+                    }
+                }
+                // fallback any private
+                val interfaces2 = NetworkInterface.getNetworkInterfaces()
+                while (interfaces2.hasMoreElements()) {
+                    val iface = interfaces2.nextElement()
+                    if (!iface.isUp || iface.isLoopback) continue
+                    val addrs = iface.inetAddresses
+                    while (addrs.hasMoreElements()) {
+                        val addr = addrs.nextElement()
+                        val ip = addr.hostAddress ?: continue
+                        if (!addr.isLoopbackAddress && LocalNetworkBinder.isPrivateIp(ip)) {
+                            return ip
                         }
                     }
                 }
@@ -46,9 +72,11 @@ class DiscoveryHelper(
         if (running) return
         running = true
         try {
-            socket = DatagramSocket(DISCOVERY_PORT)
-            socket?.broadcast = true
+            socket = DatagramSocket(null)
             socket?.reuseAddress = true
+            socket?.broadcast = true
+            socket?.bind(InetSocketAddress(DISCOVERY_PORT))
+            context?.let { LocalNetworkBinder.bindSocket(it, socket!!) }
 
             scope.launch(Dispatchers.IO) {
                 val buf = ByteArray(128)
@@ -57,7 +85,8 @@ class DiscoveryHelper(
                         val packet = DatagramPacket(buf, buf.size)
                         socket?.receive(packet)
                         val msg = String(packet.data, 0, packet.length)
-                        val ip = packet.address.hostAddress ?: continue
+                        val ip = packet.address?.hostAddress ?: continue
+                        if (!LocalNetworkBinder.isPrivateIp(ip)) continue
                         if (ip == localIp()) continue
 
                         when {
@@ -68,7 +97,7 @@ class DiscoveryHelper(
                             msg.startsWith(REPLY) -> onPeerFound?.invoke(ip)
                         }
                     } catch (e: Exception) {
-                        if (running) Log.e(TAG, "listen error", e)
+                        if (running) Log.e(TAG, "listen: ${e.message}")
                     }
                 }
             }
@@ -76,11 +105,10 @@ class DiscoveryHelper(
             scope.launch(Dispatchers.IO) {
                 while (isActive && running) {
                     try { broadcast(HELLO.toByteArray()) } catch (_: Exception) {}
-                    delay(1500)
+                    delay(1000)
                 }
             }
-
-            Log.i(TAG, "Discovery started")
+            Log.i(TAG, "Local discovery started")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
             running = false
@@ -88,6 +116,7 @@ class DiscoveryHelper(
     }
 
     private fun broadcast(data: ByteArray) {
+        // Limited broadcast on local subnet
         val packet = DatagramPacket(
             data, data.size,
             InetAddress.getByName("255.255.255.255"),
@@ -97,6 +126,7 @@ class DiscoveryHelper(
     }
 
     private fun sendRaw(data: ByteArray, ip: String) {
+        if (!LocalNetworkBinder.isPrivateIp(ip)) return
         val packet = DatagramPacket(
             data, data.size,
             InetAddress.getByName(ip),
