@@ -18,6 +18,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
+/** Captures system audio as mono PCM 20ms frames (lower bandwidth, clearer). */
 @RequiresApi(Build.VERSION_CODES.Q)
 class SystemAudioCapturer(
     private val mediaProjection: MediaProjection,
@@ -26,9 +27,10 @@ class SystemAudioCapturer(
     companion object {
         private const val TAG = "SystemAudioCapturer"
         const val SAMPLE_RATE = 44100
-        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_STEREO
-        const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val FRAME_MS = 20 // 20ms frames — more stable than 10ms
+        // Capture stereo then downmix to mono for network
+        private const val IN_CHANNELS = AudioFormat.CHANNEL_IN_STEREO
+        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
+        private const val FRAME_MS = 20
     }
 
     private var audioRecord: AudioRecord? = null
@@ -51,12 +53,9 @@ class SystemAudioCapturer(
             }, handler)
 
             virtualDisplay = mediaProjection.createVirtualDisplay(
-                "WasDummy",
-                320, 240, 120,
+                "WasDummy", 320, 240, 120,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-                null as Surface?,
-                null,
-                handler
+                null as Surface?, null, handler
             )
 
             val config = AudioPlaybackCaptureConfiguration.Builder(mediaProjection)
@@ -65,16 +64,17 @@ class SystemAudioCapturer(
                 .addMatchingUsage(AudioAttributes.USAGE_UNKNOWN)
                 .build()
 
-            val frameBytes = SAMPLE_RATE * 2 * 2 * FRAME_MS / 1000
-            val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            val bufferSize = maxOf(minBuf * 4, frameBytes * 8)
+            // Stereo capture buffer (L+R), then downmix
+            val stereoFrameBytes = SAMPLE_RATE * 2 * 2 * FRAME_MS / 1000
+            val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, IN_CHANNELS, AUDIO_FORMAT)
+            val bufferSize = maxOf(minBuf * 4, stereoFrameBytes * 8)
 
             audioRecord = AudioRecord.Builder()
                 .setAudioFormat(
                     AudioFormat.Builder()
                         .setEncoding(AUDIO_FORMAT)
                         .setSampleRate(SAMPLE_RATE)
-                        .setChannelMask(CHANNEL_CONFIG)
+                        .setChannelMask(IN_CHANNELS)
                         .build()
                 )
                 .setBufferSizeInBytes(bufferSize)
@@ -89,19 +89,19 @@ class SystemAudioCapturer(
             audioRecord?.startRecording()
             isCapturing = true
             seq = 0
-            Log.i(TAG, "Capture ${FRAME_MS}ms frames")
+            Log.i(TAG, "Capture mono-downmix ${FRAME_MS}ms")
 
             scope.launch(Dispatchers.IO) {
-                val buffer = ByteArray(frameBytes)
+                val stereo = ByteArray(stereoFrameBytes)
                 while (isActive && isCapturing) {
                     var filled = 0
-                    while (filled < frameBytes && isCapturing) {
-                        val read = audioRecord?.read(buffer, filled, frameBytes - filled) ?: -1
+                    while (filled < stereoFrameBytes && isCapturing) {
+                        val read = audioRecord?.read(stereo, filled, stereoFrameBytes - filled) ?: -1
                         if (read < 0) return@launch
                         filled += read
                     }
-                    if (filled == frameBytes) {
-                        onPcmFrame(seq++, buffer.copyOf())
+                    if (filled == stereoFrameBytes) {
+                        onPcmFrame(seq++, downmixToMono(stereo))
                     }
                 }
             }
@@ -109,6 +109,26 @@ class SystemAudioCapturer(
             Log.e(TAG, "start failed", e)
             isCapturing = false
         }
+    }
+
+    /** Stereo 16-bit LE -> mono average */
+    private fun downmixToMono(stereo: ByteArray): ByteArray {
+        val samples = stereo.size / 4 // stereo frames
+        val mono = ByteArray(samples * 2)
+        var si = 0
+        var mi = 0
+        while (si + 3 < stereo.size) {
+            val l = (stereo[si].toInt() and 0xFF) or (stereo[si + 1].toInt() shl 8)
+            val r = (stereo[si + 2].toInt() and 0xFF) or (stereo[si + 3].toInt() shl 8)
+            val ls = l.toShort().toInt()
+            val rs = r.toShort().toInt()
+            val m = ((ls + rs) / 2).toShort().toInt()
+            mono[mi] = (m and 0xFF).toByte()
+            mono[mi + 1] = ((m shr 8) and 0xFF).toByte()
+            si += 4
+            mi += 2
+        }
+        return mono
     }
 
     fun stop() {

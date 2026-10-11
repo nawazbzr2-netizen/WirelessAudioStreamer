@@ -8,21 +8,19 @@ import android.util.Log
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-/**
- * Smooth playback — larger HW buffer + 140ms jitter to avoid cutting/stutter.
- */
+/** Mono playback + large buffer = clear understandable audio. */
 class LowLatencyPlayer(
-    private val targetJitterMs: Int = 140
+    private val targetJitterMs: Int = 200
 ) {
     companion object {
         private const val TAG = "LowLatencyPlayer"
         const val SAMPLE_RATE = 44100
-        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_STEREO
+        const val CHANNEL_CONFIG = AudioFormat.CHANNEL_OUT_MONO
         const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     }
 
     private var audioTrack: AudioTrack? = null
-    private var jitter: JitterBuffer = JitterBuffer(targetMs = targetJitterMs)
+    private var jitter = JitterBuffer(targetMs = targetJitterMs, channels = 1)
     private val running = AtomicBoolean(false)
     private var playThread: Thread? = null
 
@@ -30,8 +28,7 @@ class LowLatencyPlayer(
         if (running.get()) return
         try {
             val minBuf = AudioTrack.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
-            // ~120ms hardware buffer — fewer underruns
-            val hwBuf = maxOf(minBuf * 4, SAMPLE_RATE * 2 * 2 * 120 / 1000)
+            val hwBuf = maxOf(minBuf * 6, SAMPLE_RATE * 2 * 150 / 1000) // ~150ms HW
 
             val builder = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -50,7 +47,6 @@ class LowLatencyPlayer(
                 .setBufferSizeInBytes(hwBuf)
                 .setTransferMode(AudioTrack.MODE_STREAM)
 
-            // NONE mode = more stable for music than LOW_LATENCY on many OEMs
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 builder.setPerformanceMode(AudioTrack.PERFORMANCE_MODE_NONE)
             }
@@ -59,11 +55,11 @@ class LowLatencyPlayer(
             audioTrack?.play()
             running.set(true)
 
-            playThread = thread(name = "WasSmoothPlayer", isDaemon = true) {
+            playThread = thread(name = "WasPlayer", isDaemon = true) {
                 while (running.get()) {
                     try {
                         if (!jitter.isPrimed()) {
-                            Thread.sleep(8)
+                            Thread.sleep(10)
                             continue
                         }
                         val data = jitter.poll()
@@ -72,24 +68,23 @@ class LowLatencyPlayer(
                             while (offset < data.size && running.get()) {
                                 val w = audioTrack?.write(data, offset, data.size - offset) ?: -1
                                 if (w <= 0) {
-                                    Thread.sleep(2)
+                                    Thread.sleep(3)
                                     break
                                 }
                                 offset += w
                             }
                         } else {
-                            // Soft wait — do not spin
-                            Thread.sleep(4)
+                            Thread.sleep(5)
                         }
                     } catch (_: InterruptedException) {
                         break
                     } catch (e: Exception) {
                         Log.e(TAG, "play", e)
-                        Thread.sleep(10)
+                        Thread.sleep(15)
                     }
                 }
             }
-            Log.i(TAG, "Player started jitter=${targetJitterMs}ms hwBuf=$hwBuf")
+            Log.i(TAG, "Mono player jitter=${targetJitterMs}ms")
         } catch (e: Exception) {
             Log.e(TAG, "start failed", e)
         }

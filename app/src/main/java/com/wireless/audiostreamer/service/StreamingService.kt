@@ -11,6 +11,10 @@ import android.content.Intent
 import android.media.AudioManager
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
@@ -60,6 +64,8 @@ class StreamingService : Service() {
         private const val CHANNEL_ID = "streaming_channel"
         private const val NOTIFICATION_ID = 1001
         private const val TAG = "StreamingService"
+        /** No packet / no WiFi for this long → show disconnected */
+        private const val PEER_TIMEOUT_MS = 4000L
     }
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -70,6 +76,8 @@ class StreamingService : Service() {
     private var btAddress: String? = null
     @Volatile private var role: String = ROLE_BOTH
     @Volatile private var isPeerConnected = false
+    @Volatile private var lastRxOrHeartbeatMs = 0L
+    @Volatile private var wifiUp = true
 
     private var capturer: SystemAudioCapturer? = null
     private var player: LowLatencyPlayer? = null
@@ -83,6 +91,7 @@ class StreamingService : Service() {
     private var previousMusicVolume: Int = -1
     private var started = false
     @Volatile private var rxCount = 0
+    private var networkCallback: ConnectivityManager.NetworkCallback? = null
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -93,6 +102,44 @@ class StreamingService : Service() {
         acquireWakeLock()
         acquireMulticastLock()
         LocalNetworkBinder.preferWifiNetwork(this)
+        registerNetworkCallback()
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+            val req = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+            networkCallback = object : ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: Network) {
+                    wifiUp = true
+                    LocalNetworkBinder.preferWifiNetwork(this@StreamingService)
+                    Log.i(TAG, "WiFi available")
+                }
+                override fun onLost(network: Network) {
+                    wifiUp = false
+                    Log.w(TAG, "WiFi lost")
+                    if (connectionType != "BT") {
+                        markDisconnected("Wi-Fi / Hotspot band — Disconnected")
+                    }
+                }
+            }
+            cm.registerNetworkCallback(req, networkCallback!!)
+        } catch (e: Exception) {
+            Log.e(TAG, "network callback", e)
+        }
+    }
+
+    private fun markDisconnected(reason: String) {
+        if (!isPeerConnected && peerIp == null) return
+        isPeerConnected = false
+        peerIp = null
+        udpStreamer?.stop()
+        udpStreamer = null
+        updateNotification(reason)
+        broadcastStatus(false, reason)
+        Log.i(TAG, reason)
     }
 
     private fun acquireMulticastLock() {
@@ -155,25 +202,28 @@ class StreamingService : Service() {
 
     private fun broadcastStatus(connected: Boolean, text: String) {
         isPeerConnected = connected
-        val i = Intent(BROADCAST_STATUS).apply {
+        sendBroadcast(Intent(BROADCAST_STATUS).apply {
             setPackage(packageName)
             putExtra(EXTRA_STATUS_CONNECTED, connected)
             putExtra(EXTRA_STATUS_TEXT, text)
             putExtra(EXTRA_STATUS_PEER, peerIp ?: btAddress ?: "")
             putExtra(EXTRA_STATUS_MODE, connectionType)
-        }
-        sendBroadcast(i)
+        })
     }
 
     private fun modeLabel(): String = when (connectionType) {
         "BT" -> "Bluetooth"
-        "WIFI" -> "Wi-Fi / Hotspot"
-        else -> connectionType
+        else -> "Wi-Fi / Hotspot"
     }
 
     private fun setPeerIp(ip: String) {
         if (!LocalNetworkBinder.isPrivateIp(ip)) return
+        if (!wifiUp && connectionType != "BT") {
+            markDisconnected("Wi-Fi off — Disconnected")
+            return
+        }
         peerIp = ip
+        lastRxOrHeartbeatMs = System.currentTimeMillis()
         udpStreamer?.stop()
         udpStreamer = UdpAudioStreamer(this, ip).also { it.start() }
 
@@ -185,7 +235,6 @@ class StreamingService : Service() {
         val msg = "Connected \u2713  ${modeLabel()}\nPeer: $ip"
         updateNotification("Connected \u2713 ${modeLabel()} | $ip")
         broadcastStatus(true, msg)
-        Log.i(TAG, "CONNECTED $ip")
     }
 
     private fun initConnection(resultCode: Int, data: Intent) {
@@ -203,7 +252,8 @@ class StreamingService : Service() {
             return
         }
 
-        val jitterMs = if (connectionType == "BT") 200 else 140
+        // Clear audio: 200ms mono
+        val jitterMs = if (connectionType == "BT") 220 else 200
         player = LowLatencyPlayer(targetJitterMs = jitterMs).also { it.start() }
 
         setupWifiReceiverAndDiscovery()
@@ -219,12 +269,31 @@ class StreamingService : Service() {
             updateNotification("Waiting for peer...")
         }
 
+        // Heartbeat + disconnect watchdog
         serviceScope.launch {
             while (started) {
-                delay(2500)
-                val tx = udpStreamer?.packetsSent ?: 0
-                if (isPeerConnected) {
-                    updateNotification("Connected \u2713 ${modeLabel()} | TX:$tx RX:$rxCount")
+                delay(1000)
+                // Send tiny heartbeat so peer knows we're alive
+                if (peerIp != null && (role == ROLE_BOTH || role == ROLE_SENDER)) {
+                    udpStreamer?.sendWithSeq(-1, ByteArray(4)) // seq -1 = heartbeat
+                }
+                // Timeout: no RX for PEER_TIMEOUT
+                if (isPeerConnected && connectionType != "BT") {
+                    val elapsed = System.currentTimeMillis() - lastRxOrHeartbeatMs
+                    if (elapsed > PEER_TIMEOUT_MS || !wifiUp) {
+                        markDisconnected(
+                            if (!wifiUp) "Wi-Fi / Hotspot band — Disconnected"
+                            else "Peer lost — Disconnected"
+                        )
+                    } else {
+                        val tx = udpStreamer?.packetsSent ?: 0
+                        updateNotification("Connected \u2713 ${modeLabel()} | TX:$tx RX:$rxCount")
+                    }
+                }
+                if (connectionType == "BT" && isPeerConnected) {
+                    if (btHelper?.isConnected() != true) {
+                        markDisconnected("Bluetooth band — Disconnected")
+                    }
                 }
             }
         }
@@ -235,8 +304,17 @@ class StreamingService : Service() {
 
         udpReceiver = UdpAudioReceiver(this) { fromIp, seq, _, payload ->
             if (!LocalNetworkBinder.isPrivateIp(fromIp)) return@UdpAudioReceiver
+            lastRxOrHeartbeatMs = System.currentTimeMillis()
+            // Heartbeat packet (seq -1 or tiny)
+            if (seq < 0 || payload.size <= 8) {
+                if (peerIp == null) setPeerIp(fromIp)
+                else if (!isPeerConnected) setPeerIp(fromIp)
+                return@UdpAudioReceiver
+            }
             rxCount++
-            if (peerIp == null || peerIp != fromIp) setPeerIp(fromIp)
+            if (peerIp == null || peerIp != fromIp || !isPeerConnected) {
+                setPeerIp(fromIp)
+            }
             if (role == ROLE_RECEIVER || role == ROLE_BOTH) {
                 player?.enqueue(seq, payload)
             }
@@ -244,7 +322,9 @@ class StreamingService : Service() {
         udpReceiver?.start(serviceScope)
 
         discovery = DiscoveryHelper(this) { ip ->
-            if (LocalNetworkBinder.isPrivateIp(ip) && peerIp == null) setPeerIp(ip)
+            if (LocalNetworkBinder.isPrivateIp(ip) && peerIp == null && wifiUp) {
+                setPeerIp(ip)
+            }
         }
         discovery?.start(serviceScope)
     }
@@ -254,6 +334,7 @@ class StreamingService : Service() {
         try {
             if (btHelper == null) {
                 btHelper = BluetoothAudioHelper { pcm ->
+                    lastRxOrHeartbeatMs = System.currentTimeMillis()
                     rxCount++
                     if (!isPeerConnected) {
                         isPeerConnected = true
@@ -273,9 +354,8 @@ class StreamingService : Service() {
                 delay(1500)
                 if (btHelper?.isConnected() == true) {
                     isPeerConnected = true
-                    val msg = "Connected \u2713  Bluetooth\n$address"
+                    broadcastStatus(true, "Connected \u2713  Bluetooth\n$address")
                     updateNotification("Connected \u2713 Bluetooth")
-                    broadcastStatus(true, msg)
                 }
             }
         } catch (e: Exception) {
@@ -311,6 +391,7 @@ class StreamingService : Service() {
             if (role != ROLE_SENDER && role != ROLE_BOTH) return@SystemAudioCapturer
             when (connectionType) {
                 "WIFI" -> {
+                    if (!wifiUp) return@SystemAudioCapturer
                     val ip = peerIp
                     if (ip != null && LocalNetworkBinder.isPrivateIp(ip)) {
                         if (udpStreamer == null) {
@@ -366,6 +447,13 @@ class StreamingService : Service() {
         btHelper?.stop(); btHelper = null
         try { mediaProjection?.stop() } catch (_: Exception) {}
         mediaProjection = null
+        try {
+            networkCallback?.let {
+                val cm = getSystemService(CONNECTIVITY_SERVICE) as ConnectivityManager
+                cm.unregisterNetworkCallback(it)
+            }
+        } catch (_: Exception) {}
+        networkCallback = null
         try { if (wakeLock?.isHeld == true) wakeLock?.release() } catch (_: Exception) {}
         try { if (multicastLock?.isHeld == true) multicastLock?.release() } catch (_: Exception) {}
         LocalNetworkBinder.clearProcessBinding(this)
